@@ -37,7 +37,7 @@ pnpm install
 # 3. Configure as variáveis de ambiente
 cp .env.example .env.local
 
-# 4. Configure o banco de dados
+# 4. Sincronize o schema com o banco (seguro: só aplica o que falta)
 pnpm db:push
 
 # 5. Inicie o servidor de desenvolvimento
@@ -45,6 +45,14 @@ pnpm dev
 
 # 6. Acesse http://localhost:3000
 ```
+
+### Comandos do banco (Drizzle)
+
+| Comando | Uso |
+|--------|-----|
+| `pnpm db:push` | **Use este.** Sincroniza o schema com o banco (só aplica o que falta). Não recria tabelas existentes, não falha. |
+| `pnpm db:generate` | Gera arquivo SQL de migration (para versionar no git). |
+| `pnpm db:migrate` | Roda as migrations SQL em ordem (útil em ambiente novo/CI). |
 
 ## 📋 Variáveis de Ambiente
 

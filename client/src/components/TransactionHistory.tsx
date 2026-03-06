@@ -14,7 +14,8 @@ interface TransactionHistoryProps {
 const TYPE_CONFIG: Record<string, { label: string; icon: any; color: string; bg: string }> = {
   payment:      { label: 'Pagamento Mensal',  icon: Wallet,           color: 'text-blue-600',  bg: 'bg-blue-50 border-blue-200' },
   amortization: { label: 'Amortização',       icon: ArrowDownCircle,  color: 'text-green-600', bg: 'bg-green-50 border-green-200' },
-  loan:         { label: 'Empréstimo',         icon: ArrowUpCircle,    color: 'text-red-600',   bg: 'bg-red-50 border-red-200' },
+  loan:         { label: 'Empréstimo',        icon: ArrowUpCircle,    color: 'text-red-600',   bg: 'bg-red-50 border-red-200' },
+  reversal:     { label: 'Estorno',           icon: ArrowUpCircle,   color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
 };
 
 export function TransactionHistory({
@@ -61,7 +62,7 @@ export function TransactionHistory({
               </div>
               <div className="text-right flex-shrink-0">
                 <span className={`text-base font-black ${cfg.color}`}>
-                  {t.type === 'loan' ? '+' : '-'}{formatCurrency(parseFloat(t.amount))}
+                  {t.type === 'loan' ? '+' : t.type === 'reversal' ? '' : '-'}{formatCurrency(parseFloat(t.amount))}
                 </span>
               </div>
             </div>

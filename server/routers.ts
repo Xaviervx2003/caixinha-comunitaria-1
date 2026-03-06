@@ -118,12 +118,17 @@ export const appRouter = router({
               CASE
                 WHEN ${transactions.type} IN ('payment', 'amortization') THEN ${transactions.amount}
                 WHEN ${transactions.type} = 'loan' THEN -${transactions.amount}
+                WHEN ${transactions.type} = 'reversal' THEN ${transactions.amount}
                 ELSE 0
               END
             ), 0)`,
           totalRendimentos: sql<number>`
             COALESCE(SUM(
-              CASE WHEN ${transactions.type} = 'payment' THEN ${transactions.amount} - 200 ELSE 0 END
+              CASE
+                WHEN ${transactions.type} = 'payment' THEN ${transactions.amount} - 200
+                WHEN ${transactions.type} = 'reversal' THEN ${transactions.amount} + 200
+                ELSE 0
+              END
             ), 0)`,
         })
         .from(transactions)
@@ -132,7 +137,7 @@ export const appRouter = router({
 
       const [{ contasAReceber }] = await db
         .select({
-          contasAReceber: sql<number>`COALESCE(SUM(current_debt), 0)`,
+          contasAReceber: sql<number>`COALESCE(SUM(${participants.currentDebt}), 0)`,
         })
         .from(participants)
         .where(eq(participants.caixinhaId, caixinha.id));
@@ -359,6 +364,14 @@ export const appRouter = router({
             description: `Empréstimo adicional de R$ ${loanAmount.toFixed(2)}`,
           });
 
+          await tx.insert(auditLog).values({
+            participantId: input.participantId,
+            participantName: p.name,
+            action: "loan_added",
+            amount: loanAmount.toFixed(2),
+            description: `Empréstimo adicional de R$ ${loanAmount.toFixed(2)}`,
+          });
+
           return { success: true };
         });
       }),
@@ -376,6 +389,24 @@ export const appRouter = router({
         const db = await getDb();
         const caixinha = await getCaixinhaOrThrow(db, ctx.user.id);
 
+        if (input.idempotencyKey) {
+          const [existing] = await db
+            .select()
+            .from(transactions)
+            .innerJoin(participants, eq(participants.id, transactions.participantId))
+            .where(
+              and(
+                eq(transactions.idempotencyKey, input.idempotencyKey),
+                eq(participants.caixinhaId, caixinha.id)
+              )
+            )
+            .limit(1);
+
+          if (existing) {
+            return { success: true };
+          }
+        }
+
         return db.transaction(async (tx) => {
           const [p] = await tx
             .select()
@@ -390,6 +421,18 @@ export const appRouter = router({
             .limit(1);
 
           if (!p) throw new TRPCError({ code: "NOT_FOUND" });
+
+          if (input.idempotencyKey) {
+            const [existing] = await tx
+              .select()
+              .from(transactions)
+              .where(eq(transactions.idempotencyKey, input.idempotencyKey))
+              .limit(1);
+
+            if (existing) {
+              return { success: true };
+            }
+          }
 
           const currentDebt = new Decimal(p.currentDebt);
           const { interest, total } = calcMonthlyPayment(currentDebt);
@@ -424,17 +467,24 @@ export const appRouter = router({
             });
           }
 
-          await tx.insert(transactions).values({
-            participantId: input.participantId,
-            type: "payment",
-            amount: total.toFixed(2),
-            balanceBefore: currentDebt.toFixed(2),
-            balanceAfter: currentDebt.toFixed(2),
-            month: input.month,
-            year: input.year,
-            description: `Cota R$ 200,00 + Juros R$ ${interest.toFixed(2)}`,
-            idempotencyKey: input.idempotencyKey,
-          });
+          try {
+            await tx.insert(transactions).values({
+              participantId: input.participantId,
+              type: "payment",
+              amount: total.toFixed(2),
+              balanceBefore: currentDebt.toFixed(2),
+              balanceAfter: currentDebt.toFixed(2),
+              month: input.month,
+              year: input.year,
+              description: `Cota R$ 200,00 + Juros R$ ${interest.toFixed(2)}`,
+              idempotencyKey: input.idempotencyKey,
+            });
+          } catch (e: any) {
+            if (e?.errno === 1062) {
+              return { success: true };
+            }
+            throw e;
+          }
 
           await tx.insert(auditLog).values({
             participantId: input.participantId,
@@ -524,9 +574,22 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         const caixinha = await getCaixinhaOrThrow(db, ctx.user.id);
-        await getParticipantOrThrow(db, input.participantId, caixinha.id);
 
         return db.transaction(async (tx) => {
+          const [p] = await tx
+            .select()
+            .from(participants)
+            .where(
+              and(
+                eq(participants.id, input.participantId),
+                eq(participants.caixinhaId, caixinha.id)
+              )
+            )
+            .for("update")
+            .limit(1);
+
+          if (!p) throw new TRPCError({ code: "NOT_FOUND", message: "Participante não encontrado." });
+
           const [payment] = await tx
             .select()
             .from(monthlyPayments)
@@ -537,27 +600,50 @@ export const appRouter = router({
             throw new TRPCError({ code: "NOT_FOUND", message: "Pagamento não encontrado." });
           }
 
+          if (payment.participantId !== input.participantId) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Pagamento não pertence ao participante." });
+          }
+
           await tx
             .update(monthlyPayments)
             .set({ paid: false })
             .where(eq(monthlyPayments.id, input.paymentId));
 
-          await tx.delete(transactions).where(
-            and(
-              eq(transactions.participantId, input.participantId),
-              eq(transactions.type, "payment"),
-              eq(transactions.month, payment.month!),
-              eq(transactions.year, payment.year!)
+          const [originalTx] = await tx
+            .select()
+            .from(transactions)
+            .where(
+              and(
+                eq(transactions.participantId, input.participantId),
+                eq(transactions.type, "payment"),
+                eq(transactions.month, payment.month),
+                eq(transactions.year, payment.year)
+              )
             )
-          );
+            .limit(1);
+
+          if (originalTx) {
+            const currentDebt = new Decimal(p.currentDebt);
+            const reversalAmount = new Decimal(originalTx.amount).negated();
+            await tx.insert(transactions).values({
+              participantId: input.participantId,
+              type: "reversal",
+              amount: reversalAmount.toFixed(2),
+              balanceBefore: currentDebt.toFixed(2),
+              balanceAfter: currentDebt.toFixed(2),
+              month: payment.month,
+              year: payment.year,
+              description: `Estorno de pagamento: ${payment.month}/${payment.year}`,
+            });
+          }
 
           await tx.insert(auditLog).values({
             participantId: input.participantId,
-            participantName: "",
+            participantName: p.name,
             action: "payment_unmarked",
-            month: payment.month!,
-            year: payment.year!,
-            description: `Pagamento de ${payment.month}/${payment.year} desmarcado`,
+            month: payment.month,
+            year: payment.year,
+            description: `Pagamento de ${payment.month}/${payment.year} desmarcado (estorno gerado)`,
           });
 
           return { success: true };
@@ -618,7 +704,7 @@ export const appRouter = router({
 
         return db.transaction(async (tx) => {
           const payments = await tx
-            .select({ mp: monthlyPayments })
+            .select({ mp: monthlyPayments, participant: participants })
             .from(monthlyPayments)
             .innerJoin(participants, eq(participants.id, monthlyPayments.participantId))
             .where(
@@ -632,20 +718,48 @@ export const appRouter = router({
 
           if (payments.length === 0) return { success: true, reset: 0 };
 
-          for (const { mp } of payments) {
+          for (const { mp, participant } of payments) {
             await tx
               .update(monthlyPayments)
               .set({ paid: false })
               .where(eq(monthlyPayments.id, mp.id));
 
-            await tx.delete(transactions).where(
-              and(
-                eq(transactions.participantId, mp.participantId),
-                eq(transactions.type, "payment"),
-                eq(transactions.month, month),
-                eq(transactions.year, year)
+            const [originalTx] = await tx
+              .select()
+              .from(transactions)
+              .where(
+                and(
+                  eq(transactions.participantId, mp.participantId),
+                  eq(transactions.type, "payment"),
+                  eq(transactions.month, month),
+                  eq(transactions.year, year)
+                )
               )
-            );
+              .limit(1);
+
+            if (originalTx) {
+              const currentDebt = new Decimal(participant.currentDebt);
+              const reversalAmount = new Decimal(originalTx.amount).negated();
+              await tx.insert(transactions).values({
+                participantId: mp.participantId,
+                type: "reversal",
+                amount: reversalAmount.toFixed(2),
+                balanceBefore: currentDebt.toFixed(2),
+                balanceAfter: currentDebt.toFixed(2),
+                month,
+                year,
+                description: `Estorno de pagamento (reset mês): ${month}/${year}`,
+              });
+            }
+
+            await tx.insert(auditLog).values({
+              participantId: mp.participantId,
+              participantName: participant.name,
+              action: "payment_unmarked",
+              month,
+              year,
+              description: `Pagamento de ${month}/${year} desmarcado (reset do mês)`,
+            });
           }
 
           return { success: true, reset: payments.length };
@@ -682,12 +796,25 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         const caixinha = await getCaixinhaOrThrow(db, ctx.user.id);
-        const p = await getParticipantOrThrow(db, input.participantId, caixinha.id);
-
-        const balanceBefore = new Decimal(p.currentDebt);
-        const balanceAfter = new Decimal(input.newCurrentDebt);
 
         return db.transaction(async (tx) => {
+          const [p] = await tx
+            .select()
+            .from(participants)
+            .where(
+              and(
+                eq(participants.id, input.participantId),
+                eq(participants.caixinhaId, caixinha.id)
+              )
+            )
+            .for("update")
+            .limit(1);
+
+          if (!p) throw new TRPCError({ code: "NOT_FOUND", message: "Participante não encontrado." });
+
+          const balanceBefore = new Decimal(p.currentDebt);
+          const balanceAfter = new Decimal(input.newCurrentDebt);
+
           await tx
             .update(participants)
             .set({ currentDebt: balanceAfter.toFixed(2) })

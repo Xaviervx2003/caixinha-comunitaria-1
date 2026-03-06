@@ -1,0 +1,2 @@
+ALTER TABLE `auditLog` MODIFY COLUMN `action` enum('payment_marked','payment_unmarked','amortization_added','participant_created','participant_deleted','loan_added') NOT NULL;--> statement-breakpoint
+ALTER TABLE `transactions` MODIFY COLUMN `type` enum('loan','payment','amortization','reversal') NOT NULL;

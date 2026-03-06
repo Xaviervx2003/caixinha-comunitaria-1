@@ -112,7 +112,7 @@ export const transactions = mysqlTable(
     participantId: int("participantId")
       .notNull()
       .references(() => participants.id, { onDelete: "cascade" }),
-    type: mysqlEnum("type", ["loan", "payment", "amortization"]).notNull(),
+    type: mysqlEnum("type", ["loan", "payment", "amortization", "reversal"]).notNull(),
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     balanceBefore: decimal("balanceBefore", { precision: 10, scale: 2 }).notNull(),
     balanceAfter: decimal("balanceAfter", { precision: 10, scale: 2 }).notNull(),
@@ -185,6 +185,7 @@ export const auditLog = mysqlTable(
       "amortization_added",
       "participant_created",
       "participant_deleted",
+      "loan_added",
     ]).notNull(),
     month: varchar("month", { length: 7 }), // "YYYY-MM"
     year: int("year"),
