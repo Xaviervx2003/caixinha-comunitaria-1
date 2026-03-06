@@ -1,4 +1,4 @@
-// server/appRouter.ts
+// server/routers.ts
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -17,9 +17,6 @@ import {
   caixinhaMetadata,
 } from "../drizzle/schema";
 
-// ─────────────────────────────────────────
-// Helper: busca e valida ownership da caixinha
-// ─────────────────────────────────────────
 async function getCaixinhaOrThrow(db: Awaited<ReturnType<typeof getDb>>, userId: number) {
   const [caixinha] = await db
     .select()
@@ -36,9 +33,6 @@ async function getCaixinhaOrThrow(db: Awaited<ReturnType<typeof getDb>>, userId:
   return caixinha;
 }
 
-// ─────────────────────────────────────────
-// Helper: busca participante e garante que pertence à caixinha do usuário
-// ─────────────────────────────────────────
 async function getParticipantOrThrow(
   db: Awaited<ReturnType<typeof getDb>>,
   participantId: number,
@@ -64,9 +58,6 @@ async function getParticipantOrThrow(
   return p;
 }
 
-// ─────────────────────────────────────────
-// Schemas Zod reutilizáveis
-// ─────────────────────────────────────────
 const monthSchema = z
   .string()
   .regex(/^\d{4}-\d{2}$/, 'Formato inválido. Use "YYYY-MM"');
@@ -87,45 +78,35 @@ export const appRouter = router({
 
   caixinha: router({
 
-    // ──────────────────────────────────────
-    // GET OR CREATE CAIXINHA
-    // Chamado no login — garante que o usuário sempre tem uma caixinha
-    // ──────────────────────────────────────
- getOrCreateCaixinha: protectedProcedure.mutation(async ({ ctx }) => {
-  const db = await getDb();
+    getOrCreateCaixinha: protectedProcedure.mutation(async ({ ctx }) => {
+      const db = await getDb();
 
-  const [existing] = await db
-    .select()
-    .from(caixinhaMetadata)
-    .where(eq(caixinhaMetadata.ownerId, ctx.user.id))
-    .limit(1);
+      const [existing] = await db
+        .select()
+        .from(caixinhaMetadata)
+        .where(eq(caixinhaMetadata.ownerId, ctx.user.id))
+        .limit(1);
 
-  if (existing) return existing;
+      if (existing) return existing;
 
-  try {
-    await db.insert(caixinhaMetadata).values({
-      ownerId: ctx.user.id,
-      name: "Minha Caixinha",
-    });
-  } catch (e: any) {
-    // ← vai aparecer no terminal agora
-    console.error("❌ INSERT ERRO COMPLETO:", e?.cause ?? e);
-    throw e;
-  }
+      try {
+        await db.insert(caixinhaMetadata).values({
+          ownerId: ctx.user.id,
+          name: "Minha Caixinha",
+        });
+      } catch (e: any) {
+        if (e?.errno !== 1062) throw e;
+      }
 
-  const [created] = await db
-    .select()
-    .from(caixinhaMetadata)
-    .where(eq(caixinhaMetadata.ownerId, ctx.user.id))
-    .limit(1);
+      const [created] = await db
+        .select()
+        .from(caixinhaMetadata)
+        .where(eq(caixinhaMetadata.ownerId, ctx.user.id))
+        .limit(1);
 
-  return created;
-}),
+      return created;
+    }),
 
-
-    // ──────────────────────────────────────
-    // BALANCETE
-    // ──────────────────────────────────────
     getBalancete: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       const caixinha = await getCaixinhaOrThrow(db, ctx.user.id);
@@ -190,9 +171,6 @@ export const appRouter = router({
       };
     }),
 
-    // ──────────────────────────────────────
-    // LIST PARTICIPANTS
-    // ──────────────────────────────────────
     listParticipants: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       const caixinha = await getCaixinhaOrThrow(db, ctx.user.id);
@@ -213,9 +191,6 @@ export const appRouter = router({
       return Object.values(grouped);
     }),
 
-    // ──────────────────────────────────────
-    // GET MONTHLY PAYMENTS
-    // ──────────────────────────────────────
     getMonthlyPayments: protectedProcedure
       .input(z.object({ participantId: participantIdSchema }))
       .query(async ({ input, ctx }) => {
@@ -229,9 +204,6 @@ export const appRouter = router({
           .where(eq(monthlyPayments.participantId, input.participantId));
       }),
 
-    // ──────────────────────────────────────
-    // GET TRANSACTIONS
-    // ──────────────────────────────────────
     getTransactions: protectedProcedure
       .input(z.object({ participantId: participantIdSchema }))
       .query(async ({ input, ctx }) => {
@@ -245,23 +217,30 @@ export const appRouter = router({
           .where(eq(transactions.participantId, input.participantId));
       }),
 
-    // ──────────────────────────────────────
-    // GET ALL TRANSACTIONS
-    // ──────────────────────────────────────
+    // ✅ CORRIGIDO: era "etAllTransactions" (faltava o g)
     getAllTransactions: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       const caixinha = await getCaixinhaOrThrow(db, ctx.user.id);
 
       return db
-        .select({ transactions })
+        .select({
+          id: transactions.id,
+          participantId: transactions.participantId,
+          type: transactions.type,
+          amount: transactions.amount,
+          balanceBefore: transactions.balanceBefore,
+          balanceAfter: transactions.balanceAfter,
+          month: transactions.month,
+          year: transactions.year,
+          description: transactions.description,
+          createdAt: transactions.createdAt,
+        })
         .from(transactions)
         .innerJoin(participants, eq(participants.id, transactions.participantId))
         .where(eq(participants.caixinhaId, caixinha.id));
     }),
 
-    // ──────────────────────────────────────
-    // GET AUDIT LOG
-    // ──────────────────────────────────────
+    // ✅ CORRIGIDO: return estava cortado sem .from().where().limit()
     getAuditLog: protectedProcedure
       .input(
         z.object({
@@ -283,16 +262,23 @@ export const appRouter = router({
         }
 
         return db
-          .select({ auditLog })
+          .select({
+            id: auditLog.id,
+            participantId: auditLog.participantId,
+            participantName: auditLog.participantName,
+            action: auditLog.action,
+            month: auditLog.month,
+            year: auditLog.year,
+            amount: auditLog.amount,
+            description: auditLog.description,
+            createdAt: auditLog.createdAt,
+          })
           .from(auditLog)
           .innerJoin(participants, eq(participants.id, auditLog.participantId))
           .where(eq(participants.caixinhaId, caixinha.id))
           .limit(input.limit);
       }),
 
-    // ──────────────────────────────────────
-    // ADD PARTICIPANT
-    // ──────────────────────────────────────
     addParticipant: protectedProcedure
       .input(
         z.object({
@@ -325,9 +311,6 @@ export const appRouter = router({
         });
       }),
 
-    // ──────────────────────────────────────
-    // ADD LOAN
-    // ──────────────────────────────────────
     addLoan: protectedProcedure
       .input(
         z.object({
@@ -380,9 +363,6 @@ export const appRouter = router({
         });
       }),
 
-    // ──────────────────────────────────────
-    // REGISTER PAYMENT
-    // ──────────────────────────────────────
     registerPayment: protectedProcedure
       .input(
         z.object({
@@ -470,9 +450,6 @@ export const appRouter = router({
         });
       }),
 
-    // ──────────────────────────────────────
-    // REGISTER AMORTIZATION
-    // ──────────────────────────────────────
     registerAmortization: protectedProcedure
       .input(
         z.object({
@@ -537,9 +514,6 @@ export const appRouter = router({
         });
       }),
 
-    // ──────────────────────────────────────
-    // UNMARK PAYMENT
-    // ──────────────────────────────────────
     unmarkPayment: protectedProcedure
       .input(
         z.object({
@@ -590,9 +564,6 @@ export const appRouter = router({
         });
       }),
 
-    // ──────────────────────────────────────
-    // UPDATE PARTICIPANT NAME
-    // ──────────────────────────────────────
     updateParticipantName: protectedProcedure
       .input(
         z.object({
@@ -613,15 +584,12 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    // ──────────────────────────────────────
-    // DELETE PARTICIPANT
-    // ──────────────────────────────────────
     deleteParticipant: protectedProcedure
       .input(z.object({ participantId: participantIdSchema }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         const caixinha = await getCaixinhaOrThrow(db, ctx.user.id);
-        const p = await getParticipantOrThrow(db, input.participantId, caixinha.id);
+        await getParticipantOrThrow(db, input.participantId, caixinha.id);
 
         return db.transaction(async (tx) => {
           await tx.delete(auditLog).where(eq(auditLog.participantId, input.participantId));
@@ -633,9 +601,6 @@ export const appRouter = router({
         });
       }),
 
-    // ──────────────────────────────────────
-    // RESET MONTH
-    // ──────────────────────────────────────
     resetMonth: protectedProcedure
       .input(
         z.object({
@@ -687,9 +652,6 @@ export const appRouter = router({
         });
       }),
 
-    // ──────────────────────────────────────
-    // UPDATE PARTICIPANT LOAN
-    // ──────────────────────────────────────
     updateParticipantLoan: protectedProcedure
       .input(
         z.object({
@@ -710,9 +672,6 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    // ──────────────────────────────────────
-    // UPDATE PARTICIPANT DEBT
-    // ──────────────────────────────────────
     updateParticipantDebt: protectedProcedure
       .input(
         z.object({
@@ -746,9 +705,6 @@ export const appRouter = router({
         });
       }),
 
-    // ──────────────────────────────────────
-    // UPDATE PARTICIPANT EMAIL
-    // ──────────────────────────────────────
     updateParticipantEmail: protectedProcedure
       .input(
         z.object({

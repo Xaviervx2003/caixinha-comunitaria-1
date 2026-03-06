@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { History } from 'lucide-react';
+import { History, CheckCircle, XCircle, TrendingDown, UserPlus, Trash2, DollarSign } from 'lucide-react';
 import { formatCurrency } from '@/lib/format-currency';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -21,15 +21,21 @@ interface AuditLogProps {
   participantId?: number;
 }
 
-const ACTION_LABELS: Record<string, { label: string; color: string; icon: string }> = {
-  'payment_marked': { label: 'Pagamento Marcado', color: 'bg-green-100 text-green-800', icon: '✓' },
-  'payment_unmarked': { label: 'Pagamento Desmarcado', color: 'bg-yellow-100 text-yellow-800', icon: '↶' },
-  'amortization_added': { label: 'Amortização Adicionada', color: 'bg-blue-100 text-blue-800', icon: '↓' },
-  'participant_created': { label: 'Participante Criado', color: 'bg-purple-100 text-purple-800', icon: '+' },
-  'participant_deleted': { label: 'Participante Deletado', color: 'bg-red-100 text-red-800', icon: '✕' },
+const ACTION_CONFIG: Record<string, {
+  label: string;
+  icon: any;
+  borderColor: string;
+  badgeColor: string;
+}> = {
+  payment_marked:      { label: 'Pagamento Registrado',   icon: CheckCircle,  borderColor: 'border-green-500',  badgeColor: 'bg-green-100 text-green-800 border-green-300' },
+  payment_unmarked:    { label: 'Pagamento Desmarcado',   icon: XCircle,      borderColor: 'border-yellow-500', badgeColor: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+  amortization_added:  { label: 'Amortização',            icon: TrendingDown, borderColor: 'border-blue-500',   badgeColor: 'bg-blue-100 text-blue-800 border-blue-300' },
+  participant_created: { label: 'Participante Criado',    icon: UserPlus,     borderColor: 'border-purple-500', badgeColor: 'bg-purple-100 text-purple-800 border-purple-300' },
+  participant_deleted: { label: 'Participante Deletado',  icon: Trash2,       borderColor: 'border-red-500',    badgeColor: 'bg-red-100 text-red-800 border-red-300' },
+  loan_added:          { label: 'Empréstimo Adicionado',  icon: DollarSign,   borderColor: 'border-orange-500', badgeColor: 'bg-orange-100 text-orange-800 border-orange-300' },
 };
 
-export function AuditLog({ entries = [], participantId }: AuditLogProps) {
+export function AuditLog({ entries = [] }: AuditLogProps) {
   if (entries.length === 0) {
     return (
       <div className="text-center py-8 text-gray-400 border-2 border-dashed border-gray-300">
@@ -39,64 +45,68 @@ export function AuditLog({ entries = [], participantId }: AuditLogProps) {
     );
   }
 
-  // Ordenar por data (mais recentes primeiro)
-  const sortedEntries = [...entries].sort((a, b) => {
-    const dateA = new Date(a.createdAt).getTime();
-    const dateB = new Date(b.createdAt).getTime();
-    return dateB - dateA;
-  });
+  const sorted = [...entries].sort((a, b) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
 
   return (
-    <div className="w-full">
-      <div className="mb-4">
-        <p className="text-xs font-black uppercase text-gray-600 mb-3">Histórico de Alterações</p>
-      </div>
-      
-      <ScrollArea className="h-[350px] w-full pr-4 border-2 border-black rounded-none">
-        <div className="space-y-2">
-          {sortedEntries.map((entry) => {
-            const actionInfo = ACTION_LABELS[entry.action] || { label: entry.action, color: 'bg-gray-100 text-gray-800', icon: '•' };
-            const entryDate = new Date(entry.createdAt);
-            const formattedDate = format(entryDate, "dd 'de' MMM 'de' yyyy, HH:mm", { locale: ptBR });
+    <ScrollArea className="h-[320px] w-full border-2 border-black">
+      <div className="divide-y-2 divide-gray-100">
+        {sorted.map((entry) => {
+          const cfg = ACTION_CONFIG[entry.action] ?? {
+            label: entry.action,
+            icon: History,
+            borderColor: 'border-gray-400',
+            badgeColor: 'bg-gray-100 text-gray-700 border-gray-300',
+          };
+          const Icon = cfg.icon;
+          const date = new Date(entry.createdAt);
+          const validDate = !isNaN(date.getTime());
 
-            return (
-              <div
-                key={entry.id}
-                className="border-l-4 border-black pl-3 py-2 hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`inline-block px-2 py-1 text-xs font-bold rounded-none border border-black ${actionInfo.color}`}>
-                        {actionInfo.label}
-                      </span>
-                      <span className="text-xs text-gray-500 font-semibold">{formattedDate}</span>
-                    </div>
-                    
-                    <p className="text-sm font-bold text-gray-800">{entry.participantName}</p>
-                    
-                    {entry.month && entry.year && (
-                      <p className="text-xs text-gray-600 mt-1">
-                        <span className="font-semibold">{entry.month}/{entry.year}</span>
-                      </p>
-                    )}
-                    
-                    {entry.amount && (
-                      <p className="text-xs text-gray-600 mt-1">
-                        Valor: <span className="font-bold">{formatCurrency(entry.amount)}</span>
-                      </p>
-                    )}
-                    
-                    {entry.description && (
-                      <p className="text-xs text-gray-500 italic mt-1">{entry.description}</p>
-                    )}
-                  </div>
-                </div>
+          return (
+            <div
+              key={entry.id}
+              className={`flex gap-3 p-3 border-l-4 ${cfg.borderColor} hover:bg-gray-50 transition-colors`}
+            >
+              <div className="flex-shrink-0 mt-0.5">
+                <Icon className="w-4 h-4 text-gray-500" />
               </div>
-            );
-          })}
-        </div>
-      </ScrollArea>
-    </div>
+              <div className="flex-1 min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`text-xs font-bold px-2 py-0.5 border rounded-none ${cfg.badgeColor}`}>
+                    {cfg.label}
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    {validDate
+                      ? format(date, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+                      : '—'}
+                  </span>
+                </div>
+
+                {entry.participantName && (
+                  <p className="text-xs font-bold text-gray-700">{entry.participantName}</p>
+                )}
+
+                {entry.month && (
+                  <p className="text-xs text-gray-500">
+                    Referência: <span className="font-semibold">{entry.month}</span>
+                  </p>
+                )}
+
+                {entry.amount && parseFloat(entry.amount) > 0 && (
+                  <p className="text-xs text-gray-600">
+                    Valor: <span className="font-bold">{formatCurrency(parseFloat(entry.amount))}</span>
+                  </p>
+                )}
+
+                {entry.description && (
+                  <p className="text-xs text-gray-400 italic">{entry.description}</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </ScrollArea>
   );
 }
