@@ -20,9 +20,9 @@ interface TransactionHistoryProps {
 }
 
 const TYPE_CONFIG: Record<string, { label: string; icon: any; color: string; bg: string }> = {
-  payment:      { label: 'Pagamento Mensal',  icon: Wallet,           color: 'text-blue-600',  bg: 'bg-blue-50 border-blue-200' },
-  amortization: { label: 'Amortização',       icon: ArrowDownCircle,  color: 'text-green-600', bg: 'bg-green-50 border-green-200' },
-  loan:         { label: 'Empréstimo',        icon: ArrowUpCircle,    color: 'text-red-600',   bg: 'bg-red-50 border-red-200' },
+  payment:      { label: 'Pagamento Mensal',  icon: Wallet,          color: 'text-blue-600',  bg: 'bg-blue-50 border-blue-200' },
+  amortization: { label: 'Amortização',       icon: ArrowDownCircle, color: 'text-green-600', bg: 'bg-green-50 border-green-200' },
+  loan:         { label: 'Empréstimo',        icon: ArrowUpCircle,   color: 'text-red-600',   bg: 'bg-red-50 border-red-200' },
   reversal:     { label: 'Estorno',           icon: ArrowUpCircle,   color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
 };
 
@@ -37,24 +37,31 @@ export function TransactionHistory({
     );
   }
 
-  const sorted = [...transactions].sort((a, b) =>
-    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  // Tratamento seguro para as datas no TypeScript (Fallback para 0 caso seja null/undefined)
+  const getTime = (dateValue: string | Date | null | undefined) => 
+    dateValue ? new Date(dateValue).getTime() : 0;
+
+  const sorted = [...transactions].sort((a, b) => getTime(b.createdAt) - getTime(a.createdAt));
 
   return (
-    <ScrollArea className="h-[320px] w-full border border-gray-200 rounded-lg">
+    <ScrollArea className="h-80 w-full border border-gray-200 rounded-lg">
       <div className="divide-y divide-gray-100">
         {sorted.map((t) => {
           const cfg = TYPE_CONFIG[t.type] ?? {
             label: t.type, icon: Wallet, color: 'text-gray-600', bg: 'bg-gray-50 border-gray-200',
           };
           const Icon = cfg.icon;
-          const date = new Date(t.createdAt);
+          
+          // Tratamento para extrair a data com segurança
+          const date = t.createdAt ? new Date(t.createdAt) : new Date(NaN);
           const validDate = !isNaN(date.getTime());
+
+          // Força a conversão segura do valor numérico
+          const parsedAmount = typeof t.amount === 'string' ? parseFloat(t.amount) : t.amount;
 
           return (
             <div key={t.id} className={`flex items-center gap-3 p-3 ${cfg.bg} border-l-4 rounded-none`}>
-              <div className={`${cfg.color} flex-shrink-0`}>
+              <div className={`${cfg.color} shrink-0`}>
                 <Icon className="w-5 h-5" />
               </div>
               <div className="flex-1 min-w-0">
@@ -68,9 +75,9 @@ export function TransactionHistory({
                     : '—'}
                 </p>
               </div>
-              <div className="text-right flex-shrink-0">
+              <div className="text-right shrink-0">
                 <span className={`text-base font-black ${cfg.color}`}>
-                  {t.type === 'loan' ? '+' : t.type === 'reversal' ? '' : '-'}{formatCurrency(parseFloat(t.amount))}
+                  {t.type === 'loan' ? '+' : t.type === 'reversal' ? '' : '-'}{formatCurrency(parsedAmount)}
                 </span>
               </div>
             </div>

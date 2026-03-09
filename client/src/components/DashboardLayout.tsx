@@ -21,15 +21,17 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, Wallet, Landmark, ShieldCheck } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
+import { Skeleton } from './ui/skeleton';
 
+// ✅ Menus atualizados com vocabulário de FinTech
 const menuItems = [
-  { icon: LayoutDashboard, label: "Page 1", path: "/" },
-  { icon: Users, label: "Page 2", path: "/some-path" },
+  { icon: LayoutDashboard, label: "Painel Geral", path: "/" },
+  { icon: Users, label: "Participantes", path: "/participantes" }, // Exemplo de rota futura
+  { icon: Wallet, label: "Transações", path: "/transacoes" },    // Exemplo de rota futura
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -53,30 +55,42 @@ export default function DashboardLayout({
   }, [sidebarWidth]);
 
   if (loading) {
-    return <DashboardLayoutSkeleton />
+    return <DashboardLayoutSkeleton />;
   }
 
+  // ✅ Tela de Login Premium (FinTech Style)
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
-          <div className="flex flex-col items-center gap-6">
-            <h1 className="text-2xl font-semibold tracking-tight text-center">
-              Sign in to continue
+      <div className="flex items-center justify-center min-h-screen bg-slate-50 p-4">
+        <div className="flex flex-col items-center p-10 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 max-w-md w-full transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+          <div className="w-20 h-20 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
+            <Landmark className="w-10 h-10 text-primary" />
+          </div>
+          
+          <div className="flex flex-col items-center gap-3 w-full mb-8">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 text-center">
+              Acesse sua Caixinha
             </h1>
-            <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Access to this dashboard requires authentication. Continue to launch the login flow.
+            <p className="text-sm text-slate-500 text-center max-w-[280px] leading-relaxed">
+              Gestão financeira comunitária segura e transparente. Faça login para continuar.
             </p>
           </div>
-          <Button
-            onClick={() => {
-              window.location.href = getLoginUrl();
-            }}
-            size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all"
-          >
-            Sign in
-          </Button>
+
+          <div className="w-full space-y-4">
+            <Button
+              onClick={() => {
+                window.location.href = getLoginUrl();
+              }}
+              size="lg"
+              className="w-full rounded-xl h-12 text-base font-semibold shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2"
+            >
+              <ShieldCheck className="w-5 h-5" />
+              Entrar com Segurança
+            </Button>
+            <p className="text-xs text-center text-slate-400 font-medium uppercase tracking-wider">
+              Acesso restrito a membros
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -112,7 +126,7 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item => item.path === location);
+  const activeMenuItem = menuItems.find(item => item.path === location) || menuItems[0];
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -156,30 +170,33 @@ function DashboardLayoutContent({
       <div className="relative" ref={sidebarRef}>
         <Sidebar
           collapsible="icon"
-          className="border-r-0"
+          className="border-r border-slate-200/60 bg-slate-50/50"
           disableTransition={isResizing}
         >
-          <SidebarHeader className="h-16 justify-center">
-            <div className="flex items-center gap-3 px-2 transition-all w-full">
+          <SidebarHeader className="h-20 justify-center border-b border-slate-200/50">
+            <div className="flex items-center gap-3 px-3 transition-all w-full">
               <button
                 onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
+                className="h-9 w-9 flex items-center justify-center hover:bg-slate-200 rounded-xl transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shrink-0"
                 aria-label="Toggle navigation"
               >
-                <PanelLeft className="h-4 w-4 text-muted-foreground" />
+                <PanelLeft className="h-5 w-5 text-slate-600" />
               </button>
               {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
-                    Navigation
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-sm shrink-0">
+                    <Landmark className="w-4 h-4 text-white" />
+                  </div>
+                  <span className="font-bold tracking-tight text-lg truncate text-slate-900">
+                    Caixinha
                   </span>
                 </div>
               ) : null}
             </div>
           </SidebarHeader>
 
-          <SidebarContent className="gap-0">
-            <SidebarMenu className="px-2 py-1">
+          <SidebarContent className="gap-2 pt-4">
+            <SidebarMenu className="px-3 py-1 space-y-1">
               {menuItems.map(item => {
                 const isActive = location === item.path;
                 return (
@@ -188,12 +205,16 @@ function DashboardLayoutContent({
                       isActive={isActive}
                       onClick={() => setLocation(item.path)}
                       tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
+                      className={`h-11 transition-all font-medium rounded-xl ${
+                        isActive 
+                          ? "bg-primary/10 text-primary hover:bg-primary/15" 
+                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                      }`}
                     >
                       <item.icon
-                        className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
+                        className={`h-5 w-5 ${isActive ? "text-primary" : "text-slate-500"}`}
                       />
-                      <span>{item.label}</span>
+                      <span className={isActive ? "font-semibold" : ""}>{item.label}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -201,37 +222,39 @@ function DashboardLayoutContent({
             </SidebarMenu>
           </SidebarContent>
 
-          <SidebarFooter className="p-3">
+          <SidebarFooter className="p-4 border-t border-slate-200/50">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0">
-                    <AvatarFallback className="text-xs font-medium">
-                      {user?.name?.charAt(0).toUpperCase()}
+                <button className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-200/70 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                  <Avatar className="h-10 w-10 border border-slate-200 shadow-sm shrink-0">
+                    <AvatarFallback className="text-sm font-bold bg-primary/5 text-primary">
+                      {user?.name?.charAt(0).toUpperCase() || "U"}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none">
-                      {user?.name || "-"}
+                    <p className="text-sm font-bold text-slate-900 truncate leading-none">
+                      {user?.name || "Usuário"}
                     </p>
-                    <p className="text-xs text-muted-foreground truncate mt-1.5">
-                      {user?.email || "-"}
+                    <p className="text-xs text-slate-500 truncate mt-1.5 font-medium">
+                      {user?.email || "Admin"}
                     </p>
                   </div>
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-56 rounded-xl shadow-lg border-slate-100">
                 <DropdownMenuItem
                   onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
+                  className="cursor-pointer text-red-600 focus:text-red-700 focus:bg-red-50 rounded-lg m-1 font-medium"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sign out</span>
+                  <span>Sair da conta</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarFooter>
         </Sidebar>
+        
+        {/* Resize Handle */}
         <div
           className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors ${isCollapsed ? "hidden" : ""}`}
           onMouseDown={() => {
@@ -242,23 +265,73 @@ function DashboardLayoutContent({
         />
       </div>
 
-      <SidebarInset>
+      <SidebarInset className="bg-slate-50/30">
         {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="tracking-tight text-foreground">
-                    {activeMenuItem?.label ?? "Menu"}
-                  </span>
-                </div>
+          <div className="flex border-b border-slate-200/60 h-16 items-center justify-between bg-white/80 px-4 backdrop-blur-md sticky top-0 z-40 shadow-sm">
+            <div className="flex items-center gap-3">
+              <SidebarTrigger className="h-10 w-10 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700" />
+              <div className="flex flex-col gap-0.5">
+                <span className="font-bold tracking-tight text-slate-900 text-lg">
+                  {activeMenuItem?.label ?? "Menu"}
+                </span>
               </div>
             </div>
           </div>
         )}
-        <main className="flex-1 p-4">{children}</main>
+        <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
+          {children}
+        </main>
       </SidebarInset>
     </>
+  );
+}
+
+export function DashboardLayoutSkeleton() {
+  return (
+    <div className="flex min-h-screen bg-slate-50">
+      {/* Sidebar skeleton - Soft Premium Style */}
+      <div className="w-[280px] border-r border-slate-200 bg-white p-4 flex flex-col">
+        {/* Logo area */}
+        <div className="flex items-center gap-3 px-3 h-16 border-b border-slate-100 mb-4">
+          <Skeleton className="h-9 w-9 rounded-xl bg-slate-200" />
+          <Skeleton className="h-5 w-28 bg-slate-200 rounded-lg" />
+        </div>
+
+        {/* Menu items */}
+        <div className="space-y-3 px-3 flex-1">
+          <Skeleton className="h-11 w-full rounded-xl bg-slate-200" />
+          <Skeleton className="h-11 w-full rounded-xl bg-slate-100" />
+          <Skeleton className="h-11 w-full rounded-xl bg-slate-100" />
+        </div>
+
+        {/* User profile area at bottom */}
+        <div className="mt-auto border-t border-slate-100 pt-4 px-3">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-xl bg-slate-200" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-24 bg-slate-200 rounded-md" />
+              <Skeleton className="h-3 w-32 bg-slate-100 rounded-md" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main content skeleton */}
+      <div className="flex-1 p-8 space-y-8 max-w-7xl mx-auto w-full">
+        {/* Title block */}
+        <Skeleton className="h-10 w-64 rounded-xl bg-slate-200" />
+        
+        {/* Cards row */}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+          <Skeleton className="h-36 rounded-2xl bg-white border border-slate-100 shadow-sm" />
+          <Skeleton className="h-36 rounded-2xl bg-white border border-slate-100 shadow-sm" />
+          <Skeleton className="h-36 rounded-2xl bg-white border border-slate-100 shadow-sm" />
+          <Skeleton className="h-36 rounded-2xl bg-white border border-slate-100 shadow-sm" />
+        </div>
+        
+        {/* Big table/chart area */}
+        <Skeleton className="h-[400px] rounded-2xl bg-white border border-slate-100 shadow-sm" />
+      </div>
+    </div>
   );
 }
