@@ -9,10 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Plus, PiggyBank, AlertTriangle, RotateCcw, Download, Upload,
-  TrendingUp, Calendar, LayoutDashboard, Users, TrendingDown,
-  ArrowLeftRight, Settings, Menu, X, LogOut, ChevronRight,
-  Banknote, Percent, Activity
+  Plus, PiggyBank, AlertTriangle, LayoutDashboard, Users,
+  ArrowLeftRight, Settings, X, LogOut, RotateCcw, Download, Upload,
 } from 'lucide-react';
 import { getLoginUrl } from '@/const';
 import { OfflineIndicator } from '@/components/OfflineIndicator';
@@ -23,35 +21,12 @@ import { ImportedParticipant, ImportedTransaction } from '@/lib/csv-import';
 import { DebtEvolutionChart } from '@/components/DebtEvolutionChart';
 import { DebtorsList } from '@/components/DebtorsList';
 import { formatCurrency } from '@/lib/format-currency';
+import { HomeSidebar } from '@/components/home/HomeSidebar';
+import { HomeTopbar } from '@/components/home/HomeTopbar';
+import { DashboardSection } from '@/components/home/DashboardSection';
+import { MONTHS, NavSection, Participant, Transaction, AuditEntry } from '@/components/home/types';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
 import { ConfirmationModal } from '@/components/ConfirmationModal';
-
-type Participant = {
-  id: number; name: string; email?: string | null;
-  totalLoan: number | string; currentDebt: number | string;
-  monthlyPayments?: { id: number; month: string; year: number; paid: boolean | number }[];
-  createdAt?: string | Date | null;
-};
-type Transaction = {
-  id: number; participantId: number; type: 'payment' | 'amortization' | string;
-  amount: number | string; month?: string; year?: number; createdAt?: string | Date | null;
-  description?: string;
-};
-type AuditEntry = {
-  id: number; participantId: number; participantName: string;
-  action: string; description?: string; createdAt?: string | Date | null;
-};
-
-const MONTHS = [
-  { value: '01', label: 'Janeiro' }, { value: '02', label: 'Fevereiro' },
-  { value: '03', label: 'Março' }, { value: '04', label: 'Abril' },
-  { value: '05', label: 'Maio' }, { value: '06', label: 'Junho' },
-  { value: '07', label: 'Julho' }, { value: '08', label: 'Agosto' },
-  { value: '09', label: 'Setembro' }, { value: '10', label: 'Outubro' },
-  { value: '11', label: 'Novembro' }, { value: '12', label: 'Dezembro' },
-];
-
-type NavSection = 'dashboard' | 'participantes' | 'devedores' | 'transacoes' | 'configuracoes';
 
 const NAV_ITEMS: { id: NavSection; label: string; icon: any; badge?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -257,241 +232,44 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/60 z-20 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* ── SIDEBAR ─────────────────────────────────────────────────── */}
-      <aside className={`
-        fixed lg:static inset-y-0 left-0 z-30
-        w-64 bg-[#0F1117] flex flex-col
-        transform transition-transform duration-300 ease-in-out
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-      `}>
-        {/* Logo */}
-        <div className="px-6 py-6 border-b border-white/10">
-          <div className="flex items-center gap-3">
-            <div className="bg-[#00C853] p-2 rounded-lg">
-              <PiggyBank className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <p className="text-white font-black text-base leading-none">Caixinha</p>
-              <p className="text-[#00C853] text-xs font-bold uppercase tracking-wider">Comunitária</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-widest px-3 mb-3">Menu</p>
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeSection === item.id;
-            const badge = item.id === 'devedores' && debtors > 0 ? debtors : null;
-            return (
-              <button
-                key={item.id}
-                onClick={() => { setActiveSection(item.id); setSidebarOpen(false); }}
-                className={`
-                  w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all
-                  ${isActive
-                    ? 'bg-[#00C853] text-white shadow-lg shadow-[#00C853]/20'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                  }
-                `}
-              >
-                <Icon className="w-4 h-4 flex-shrink-0" />
-                <span className="flex-1 text-left">{item.label}</span>
-                {badge && (
-                  <span className={`text-xs font-black px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white text-[#00C853]' : 'bg-[#FF3D00] text-white'}`}>
-                    {badge}
-                  </span>
-                )}
-                {isActive && <ChevronRight className="w-3 h-3 opacity-70" />}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Usuário */}
-        <div className="px-4 py-4 border-t border-white/10">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-[#00C853]/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-[#00C853] text-xs font-black">{user?.name?.charAt(0)?.toUpperCase()}</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-xs font-bold truncate">{user?.name}</p>
-              <p className="text-gray-500 text-xs truncate">Beta v2.0</p>
-            </div>
-          </div>
-        </div>
-      </aside>
+      <HomeSidebar
+        sidebarOpen={sidebarOpen}
+        activeSection={activeSection}
+        navItems={NAV_ITEMS}
+        debtors={debtors}
+        userName={user?.name}
+        onSelectSection={(section) => {
+          setActiveSection(section);
+          setSidebarOpen(false);
+        }}
+      />
 
       {/* ── CONTEÚDO PRINCIPAL ──────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-        {/* Topbar */}
-        <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-4">
-            <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-gray-500 hover:text-gray-900">
-              <Menu className="w-5 h-5" />
-            </button>
-            <div>
-              <h1 className="text-lg font-black text-gray-900 capitalize">
-                {NAV_ITEMS.find(n => n.id === activeSection)?.label}
-              </h1>
-              <p className="text-xs text-gray-400 hidden sm:block">
-                {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {activeSection === 'participantes' && (
-              <button onClick={() => setIsAddParticipantOpen(true)}
-                className="flex items-center gap-2 bg-[#00C853] text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-[#00a844] transition-colors shadow-sm">
-                <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">Novo Membro</span>
-              </button>
-            )}
-          </div>
-        </header>
+        <HomeTopbar
+          activeSection={activeSection}
+          activeSectionLabel={NAV_ITEMS.find((n) => n.id === activeSection)?.label || 'Dashboard'}
+          onOpenSidebar={() => setSidebarOpen(true)}
+          onOpenAddParticipant={() => setIsAddParticipantOpen(true)}
+        />
 
         {/* Scrollable content */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
-
-          {/* ── DASHBOARD ──────────────────────────────────────────── */}
           {activeSection === 'dashboard' && (
-            <div className="space-y-6 max-w-7xl mx-auto">
-
-              {/* Stats grid */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {[
-                  { label: 'Cotas Arrecadadas', value: formatCurrency(totalFees), icon: Banknote, color: '#00C853', bg: '#f0fdf4', iconBg: '#dcfce7' },
-                  { label: 'Juros Arrecadados', value: formatCurrency(totalInterest), icon: Percent, color: '#F59E0B', bg: '#fffbeb', iconBg: '#fef3c7' },
-                  { label: 'Total em Dívidas', value: formatCurrency(totalDebts), icon: TrendingDown, color: '#EF4444', bg: '#fef2f2', iconBg: '#fee2e2' },
-                  { label: 'Total Arrecadado', value: formatCurrency(totalFees + totalInterest), icon: Activity, color: '#8B5CF6', bg: '#f5f3ff', iconBg: '#ede9fe' },
-                ].map((stat) => {
-                  const Icon = stat.icon;
-                  return (
-                    <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">{stat.label}</p>
-                        <div className="p-2 rounded-lg" style={{ backgroundColor: stat.iconBg }}>
-                          <Icon className="w-4 h-4" style={{ color: stat.color }} />
-                        </div>
-                      </div>
-                      <p className="text-2xl font-black" style={{ color: stat.color }}>{stat.value}</p>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Estimativa próximo mês */}
-              {nextMonthEstimate && (
-                <div className="bg-[#0F1117] rounded-xl border border-white/10 overflow-hidden shadow-lg">
-                  <button onClick={() => setIsEstimateExpanded(!isEstimateExpanded)}
-                    className="w-full p-6 flex items-center justify-between hover:bg-white/5 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className="bg-[#00C853]/10 border border-[#00C853]/30 p-3 rounded-xl">
-                        <TrendingUp className="w-5 h-5 text-[#00C853]" />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-gray-400 text-xs font-bold uppercase tracking-wider">Estimativa — {nextMonthEstimate.nextMonth}</p>
-                        <p className="text-3xl font-black text-[#00C853]">{formatCurrency(parseFloat(nextMonthEstimate.estimatedTotal))}</p>
-                      </div>
-                    </div>
-                    <div className="text-right hidden sm:block">
-                      <div className="flex items-center gap-2 text-gray-400 text-xs justify-end mb-1">
-                        <Calendar className="w-3 h-3" />
-                        <span>Vence dia <span className="text-white font-bold">{nextMonthEstimate.dueDay}</span></span>
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        Cotas: <span className="text-white">{formatCurrency(parseFloat(nextMonthEstimate.estimatedQuotas))}</span>
-                        {' + '}Juros: <span className="text-[#F59E0B]">{formatCurrency(parseFloat(nextMonthEstimate.estimatedInterest))}</span>
-                      </p>
-                      <p className="text-xs text-[#00C853] mt-1">{isEstimateExpanded ? 'Ocultar ▲' : 'Ver detalhes ▼'}</p>
-                    </div>
-                  </button>
-
-                  {isEstimateExpanded && (
-                    <div className="border-t border-white/10 p-6">
-                      <p className="text-xs font-bold text-gray-500 uppercase mb-4">Por participante</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {nextMonthEstimate.perParticipant.map((p: any) => (
-                          <div key={p.id} className="flex items-center justify-between bg-white/5 rounded-lg px-4 py-3 border border-white/5">
-                            <span className="text-sm font-bold text-gray-300 truncate flex-1">{p.name}</span>
-                            <div className="text-right ml-3 flex-shrink-0">
-                              <p className="text-sm font-black text-white">{formatCurrency(parseFloat(p.total))}</p>
-                              <p className="text-xs text-gray-500">+{formatCurrency(parseFloat(p.interest))} juros</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Ações rápidas */}
-              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                <p className="text-sm font-bold text-gray-700 mb-4">Ações Rápidas</p>
-                <div className="flex flex-wrap gap-3">
-                  <button onClick={() => setIsResetConfirmOpen(true)}
-                    className="flex items-center gap-2 bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-lg font-bold text-sm hover:bg-red-100 transition-colors">
-                    <RotateCcw className="w-4 h-4" /> Resetar Mês
-                  </button>
-                  <button onClick={() => {
-                    try {
-                      exportToCSV(
-                        participants.map(p => ({ id: p.id, name: p.name, totalLoan: p.totalLoan.toString(), currentDebt: p.currentDebt.toString(), createdAt: p.createdAt?.toString() })),
-                        allTransactions.map(t => ({ id: t.id, participantId: t.participantId, participantName: participants.find(p => p.id === t.participantId)?.name || '', type: t.type, amount: t.amount.toString(), createdAt: t.createdAt?.toString() || new Date().toISOString() })),
-                        []
-                      );
-                      showSuccessToast('Backup exportado!');
-                    } catch { showErrorToast('Erro ao exportar'); }
-                  }}
-                    className="flex items-center gap-2 bg-blue-50 text-blue-600 border border-blue-200 px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-100 transition-colors">
-                    <Download className="w-4 h-4" /> Exportar CSV
-                  </button>
-                  <button onClick={() => setIsImportOpen(true)}
-                    className="flex items-center gap-2 bg-green-50 text-green-600 border border-green-200 px-4 py-2 rounded-lg font-bold text-sm hover:bg-green-100 transition-colors">
-                    <Upload className="w-4 h-4" /> Importar CSV
-                  </button>
-                </div>
-              </div>
-
-              {/* Resumo participantes */}
-              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-sm font-bold text-gray-700">Resumo dos Membros</p>
-                  <span className="text-xs text-gray-400">{participants.length} participantes</span>
-                </div>
-                <div className="space-y-3">
-                  {participants.slice(0, 5).map(p => {
-                    const debt = parseFloat(p.currentDebt.toString());
-                    const loan = parseFloat(p.totalLoan.toString());
-                    const progress = loan > 0 ? Math.min(100, ((loan - debt) / loan) * 100) : 100;
-                    return (
-                      <div key={p.id} className="flex items-center gap-4">
-                        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                          <span className="text-xs font-black text-gray-600">{p.name.charAt(0)}</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex justify-between mb-1">
-                            <span className="text-sm font-bold text-gray-800 truncate">{p.name}</span>
-                            <span className="text-xs font-bold text-red-500 flex-shrink-0 ml-2">{formatCurrency(debt)}</span>
-                          </div>
-                          <div className="w-full h-1.5 bg-gray-100 rounded-full">
-                            <div className="h-full rounded-full bg-[#00C853]" style={{ width: `${progress}%` }} />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {participants.length > 5 && (
-                    <button onClick={() => setActiveSection('participantes')} className="text-xs text-[#00C853] font-bold hover:underline">
-                      Ver todos ({participants.length}) →
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
+            <DashboardSection
+              totalFees={totalFees}
+              totalInterest={totalInterest}
+              totalDebts={totalDebts}
+              nextMonthEstimate={nextMonthEstimate as any}
+              isEstimateExpanded={isEstimateExpanded}
+              participants={participants}
+              allTransactions={allTransactions}
+              onToggleEstimate={() => setIsEstimateExpanded(!isEstimateExpanded)}
+              onResetMonth={() => setIsResetConfirmOpen(true)}
+              onImportCSV={() => setIsImportOpen(true)}
+              onViewAllParticipants={() => setActiveSection('participantes')}
+            />
           )}
 
           {/* ── PARTICIPANTES ──────────────────────────────────────── */}
