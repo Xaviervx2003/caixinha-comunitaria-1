@@ -215,6 +215,10 @@ export const transactionsProcedures = {
       const [payment] = await tx.select().from(monthlyPayments).where(eq(monthlyPayments.id, input.paymentId)).limit(1);
       if (!payment) throw new TRPCError({ code: "NOT_FOUND", message: "Pagamento não encontrado." });
 
+      if (payment.paid !== true && (payment.paid as any) !== 1) {
+        throw new TRPCError({ code: "CONFLICT", message: "Pagamento já está desmarcado." });
+      }
+
       await tx.update(monthlyPayments).set({ paid: false }).where(eq(monthlyPayments.id, input.paymentId));
       const [originalTx] = await tx.select().from(transactions).where(and(
         eq(transactions.participantId, input.participantId),
@@ -230,18 +234,24 @@ export const transactionsProcedures = {
         ? new Decimal(originalTx.amount).abs().toFixed(2)
         : calcMonthlyPayment(currentDebt, role).total.toFixed(2);
 
-      await tx.delete(transactions).where(and(
-        eq(transactions.participantId, input.participantId),
-        eq(transactions.type, "payment"),
-        eq(transactions.month, payment.month),
-        eq(transactions.year, payment.year),
-      ));
+      await tx.insert(transactions).values({
+        participantId: input.participantId,
+        type: "reversal",
+        amount: reversalAmountStr,
+        balanceBefore: currentDebt.toFixed(2),
+        balanceAfter: currentDebt.toFixed(2),
+        month: payment.month,
+        year: payment.year,
+        description: `Estorno manual de pagamento: ${payment.month}/${payment.year}`,
+      });
+
       await tx.insert(auditLog).values({
         participantId: input.participantId,
         participantName: p.name,
         action: "payment_unmarked",
         month: payment.month,
         year: payment.year,
+        amount: reversalAmountStr,
         description: `Pagamento de ${payment.month}/${payment.year} desmarcado (estorno gerado)`,
       });
       return { success: true };

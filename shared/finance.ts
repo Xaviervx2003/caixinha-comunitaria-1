@@ -133,6 +133,60 @@ export function calcNextMonthEstimate(
   };
 }
 
+
+
+export function splitPaymentByRole(
+  amountValue: string | number,
+  role: 'member' | 'external' = 'member'
+): { quota: number; interest: number } {
+  const amount = safeNumber(amountValue);
+  if (amount <= 0) return { quota: 0, interest: 0 };
+
+  if (role === 'external') {
+    return { quota: 0, interest: amount };
+  }
+
+  const quota = Math.min(amount, CAIXINHA_CONFIG.MONTHLY_QUOTA.toNumber());
+  return {
+    quota,
+    interest: Math.max(0, amount - quota),
+  };
+}
+
+export function calculateCollectionsFromTransactions(
+  rows: Array<{ participantId: number; type: string; amount: string | number }>,
+  participantRoles: Record<number, 'member' | 'external'>
+): { totalQuotas: number; totalInterest: number; totalFees: number } {
+  let totalQuotas = 0;
+  let totalInterest = 0;
+  let totalAmortization = 0;
+
+  for (const row of rows) {
+    const amount = safeNumber(row.amount);
+    if (amount <= 0) continue;
+
+    if (row.type === 'amortization') {
+      totalAmortization += amount;
+      continue;
+    }
+
+    if (row.type !== 'payment' && row.type !== 'reversal') continue;
+
+    const role = participantRoles[row.participantId] ?? 'member';
+    const signal = row.type === 'reversal' ? -1 : 1;
+    const split = splitPaymentByRole(amount, role);
+
+    totalQuotas += split.quota * signal;
+    totalInterest += split.interest * signal;
+  }
+
+  return {
+    totalQuotas,
+    totalInterest,
+    totalFees: totalQuotas + totalAmortization,
+  };
+}
+
 // ─────────────────────────────────────────────────────
 // 3. ADAPTADORES FRONTEND (Evita quebrar telas do React)
 // ─────────────────────────────────────────────────────

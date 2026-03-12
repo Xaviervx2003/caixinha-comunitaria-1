@@ -20,6 +20,7 @@ import { ImportedParticipant, ImportedTransaction } from '@/lib/csv-import';
 import { DebtEvolutionChart } from '@/components/DebtEvolutionChart';
 import { DebtorsList } from '@/components/DebtorsList';
 import { formatCurrency } from '@/lib/format-currency';
+import { calculateCollectionsFromTransactions } from '@shared/finance';
 import { HomeSidebar } from '@/components/home/HomeSidebar';
 import { HomeTopbar } from '@/components/home/HomeTopbar';
 import { DashboardSection } from '@/components/home/DashboardSection';
@@ -56,6 +57,9 @@ export default function Home() {
   const { data: allTransactions = [] } = trpc.caixinha.getAllTransactions.useQuery(undefined, { enabled: isAuthenticated }) as { data: Transaction[] };
   const { data: auditLogEntries = [] } = trpc.caixinha.getAuditLog.useQuery({ limit: 50 }, { enabled: isAuthenticated }) as { data: AuditEntry[] };
   const { data: nextMonthEstimate } = trpc.caixinha.getNextMonthEstimate.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: balancete } = trpc.caixinha.getBalancete.useQuery(undefined, { enabled: isAuthenticated }) as { data: any };
+  const { data: monthlyHistory = [] } = trpc.caixinha.getMonthlySummaryHistory.useQuery({ limit: 24 }, { enabled: isAuthenticated }) as { data: any[] };
+  const { data: dueAlerts } = trpc.caixinha.getDueAlerts.useQuery(undefined, { enabled: isAuthenticated }) as { data: any };
 
   const getOrCreateCaixinhaMutation = trpc.caixinha.getOrCreateCaixinha.useMutation({
     onSuccess: (data) => console.log('✅ Caixinha pronta:', data),
@@ -86,6 +90,7 @@ export default function Home() {
   const updateEmailMutation = trpc.caixinha.updateParticipantEmail.useMutation({ onSuccess: () => utils.caixinha.listParticipants.invalidate() });
   const deleteParticipantMutation = trpc.caixinha.deleteParticipant.useMutation({ onSuccess: invalidateAll });
   const updateSettingsMutation = trpc.caixinha.updateCaixinhaSettings.useMutation({ onSuccess: () => showSuccessToast('Configurações salvas!') });
+  const closeCycleMutation = trpc.caixinha.closeCycleSnapshot.useMutation({ onSuccess: invalidateAll });
 
   // ── Estados dos Modais ──────────────────────────────────────
   const [isAddParticipantOpen, setIsAddParticipantOpen] = useState(false);
@@ -122,44 +127,41 @@ export default function Home() {
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [settingsDueDay, setSettingsDueDay] = useState('5');
   const [settingsName, setSettingsName] = useState('');
+  const [isCloseCycleConfirmOpen, setIsCloseCycleConfirmOpen] = useState(false);
 
   const selectedParticipant = participants.find((p) => p.id === selectedParticipantId);
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
+  const currentMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  const isCurrentMonthClosed = monthlyHistory.some((s) => s.month === currentMonthKey);
+
+  const participantStatementQuery = trpc.caixinha.getParticipantStatement.useQuery(
+    { participantId: selectedParticipantId ?? 0 },
+    { enabled: isHistoryOpen && !!selectedParticipantId }
+  ) as { data?: any; isLoading: boolean };
 
   // ── Lógica de Filtragem de Participantes ────────────────────
   const filteredParticipants = participants.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // ── MATEMÁTICA DO DASHBOARD (CORRIGIDA PARA SUPORTAR EXTERNOS) ──
-  const totalAmortizationAmount = allTransactions.filter((t) => t.type === 'amortization').reduce((acc, t) => acc + parseFloat(t.amount.toString()), 0);
+  // ── MATEMÁTICA DO DASHBOARD (CENTRALIZADA NO MOTOR SHARED) ──
   const totalDebts = participants.reduce((acc, p) => acc + parseFloat(p.currentDebt.toString()), 0);
+  const participantRoles = Object.fromEntries(
+    participants.map((p) => [p.id, (p.role ?? 'member') as 'member' | 'external'])
+  ) as Record<number, 'member' | 'external'>;
 
-  let calculatedQuotas = 0;
-  let calculatedInterest = 0;
+  const collectionTotals = calculateCollectionsFromTransactions(
+    allTransactions.map((t) => ({
+      participantId: t.participantId,
+      type: t.type,
+      amount: t.amount,
+    })),
+    participantRoles,
+  );
 
-  allTransactions.forEach((t) => {
-    if (t.type === 'payment') {
-      const p = participants.find(part => part.id === t.participantId);
-      const isExternal = p?.role === 'external';
-      const amount = parseFloat(t.amount.toString());
-
-      if (isExternal) {
-        // Tomador Externo não paga cota. Todo o valor pago é lucro (Juros/Multa).
-        calculatedInterest += amount;
-      } else {
-        // Membro paga R$ 200 de Cota. O que sobrar é lucro (Juros/Multa).
-        const quota = Math.min(amount, 200);
-        const interest = amount - quota;
-        calculatedQuotas += quota;
-        calculatedInterest += interest;
-      }
-    }
-  });
-
-  const totalFees = calculatedQuotas + totalAmortizationAmount;
-  const totalInterest = calculatedInterest;
+  const totalFees = collectionTotals.totalFees;
+  const totalInterest = collectionTotals.totalInterest;
 
 
   // ── Handlers ────────────────────────────────────────────────
@@ -183,6 +185,7 @@ export default function Home() {
   };
 
   const handleAddLoan = async () => {
+    if (isCurrentMonthClosed) { showErrorToast('Mês atual já fechado. Reabra período para editar.'); return; }
     if (!selectedParticipantId || !loanAmount) return;
     const amount = parseFloat(loanAmount);
     if (isNaN(amount) || amount <= 0) { showErrorToast('Valor inválido'); return; }
@@ -190,6 +193,7 @@ export default function Home() {
   };
 
   const handlePayment = async () => {
+    if (isCurrentMonthClosed) { showErrorToast('Mês atual já fechado. Reabra período para editar.'); return; }
     if (!selectedParticipantId) return;
     try {
       await paymentMutation.mutateAsync({ participantId: selectedParticipantId, month: `${paymentYear}-${paymentMonth}`, year: parseInt(paymentYear),paymentDate: paymentDate });
@@ -199,6 +203,7 @@ export default function Home() {
   };
 
   const handleAmortize = async () => {
+    if (isCurrentMonthClosed) { showErrorToast('Mês atual já fechado. Reabra período para editar.'); return; }
     if (!selectedParticipantId || !amortizeAmount) return;
     const amount = parseFloat(amortizeAmount);
     if (isNaN(amount) || amount <= 0) { showErrorToast('Valor inválido'); return; }
@@ -208,6 +213,7 @@ export default function Home() {
   };
 
   const handleResetMonth = async () => {
+    if (isCurrentMonthClosed) { showErrorToast('Mês atual já fechado. Reabra período para editar.'); return; }
     try {
       const now = new Date();
       const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -217,6 +223,7 @@ export default function Home() {
   };
 
   const handleEditLoan = async () => {
+    if (isCurrentMonthClosed) { showErrorToast('Mês atual já fechado. Reabra período para editar.'); return; }
     if (!selectedParticipantId || !editLoanAmount) return;
     const amount = parseFloat(editLoanAmount);
     if (isNaN(amount) || amount < 0) { showErrorToast('Valor inválido'); return; }
@@ -224,6 +231,7 @@ export default function Home() {
   };
 
   const handleEditDebt = async () => {
+    if (isCurrentMonthClosed) { showErrorToast('Mês atual já fechado. Reabra período para editar.'); return; }
     if (!selectedParticipantId || !editDebtAmount) return;
     const amount = parseFloat(editDebtAmount);
     if (isNaN(amount) || amount < 0) { showErrorToast('Valor inválido'); return; }
@@ -241,6 +249,7 @@ export default function Home() {
   };
 
   const handleDeleteParticipant = async () => {
+    if (isCurrentMonthClosed) { showErrorToast('Mês atual já fechado. Reabra período para editar.'); return; }
     if (!selectedParticipantId) return;
     try { await deleteParticipantMutation.mutateAsync({ participantId: selectedParticipantId }); setIsDeleteConfirmOpen(false); setSelectedParticipantId(null); showSuccessToast('Participante deletado!'); } catch { showErrorToast('Erro'); }
   };
@@ -323,6 +332,18 @@ export default function Home() {
     );
   }
 
+
+  const handleCloseCycle = async () => {
+    const [year] = currentMonthKey.split('-').map(Number);
+    try {
+      await closeCycleMutation.mutateAsync({ month: currentMonthKey, year });
+      setIsCloseCycleConfirmOpen(false);
+      showSuccessToast(`Ciclo ${currentMonthKey} fechado com snapshot imutável.`);
+    } catch (e: any) {
+      showErrorToast(e?.message || 'Erro ao fechar ciclo');
+    }
+  };
+
   const debtors = participants.filter(p => parseFloat(p.currentDebt.toString()) > 0).length;
 
   // ── TELA PRINCIPAL ──────────────────────────────────────────
@@ -360,8 +381,13 @@ export default function Home() {
           {activeSection === 'dashboard' && (
             <DashboardSection
               totalFees={totalFees}
-              totalInterest={totalInterest}
-              totalDebts={totalDebts}
+              totalInterest={balancete ? parseFloat(balancete.totalRendimentos || '0') : totalInterest}
+              totalDebts={balancete ? parseFloat(balancete.contasAReceber || '0') : totalDebts}
+              balancete={balancete}
+              isCurrentMonthClosed={isCurrentMonthClosed}
+              onCloseCycle={() => setIsCloseCycleConfirmOpen(true)}
+              monthlyHistory={monthlyHistory}
+              dueAlerts={dueAlerts}
               nextMonthEstimate={nextMonthEstimate as any}
               isEstimateExpanded={isEstimateExpanded}
               participants={participants}
@@ -720,18 +746,41 @@ export default function Home() {
           <div className="py-4 space-y-6 max-h-[60vh] overflow-y-auto">
             {selectedParticipant && (
               <>
-                <TransactionHistory 
-                  participantId={selectedParticipant.id} 
-                  transactions={allTransactions.filter(t => t.participantId === selectedParticipant.id) as any} 
-                  monthlyPayments={selectedParticipant.monthlyPayments || []} 
-                  onUnmarkPayment={() => {}} 
-                />
+                {participantStatementQuery.isLoading ? (
+                  <p className='text-sm text-gray-500'>Carregando extrato...</p>
+                ) : (
+                  <TransactionHistory
+                    transactions={(participantStatementQuery.data?.transactions || []) as any}
+                  />
+                )}
                 <AuditLog entries={auditLogEntries.filter(e => e.participantId === selectedParticipant.id)} participantId={selectedParticipant.id} />
               </>
             )}
           </div>
           <DialogFooter>
             <Button onClick={() => setIsHistoryOpen(false)} className="w-full bg-gray-900 text-white rounded-lg h-11 font-bold border-0">Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
+      <Dialog open={isCloseCycleConfirmOpen} onOpenChange={setIsCloseCycleConfirmOpen}>
+        <DialogContent className="bg-white rounded-xl border-0 shadow-2xl w-full sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black">Fechar Ciclo {currentMonthKey}</DialogTitle>
+            <DialogDescription>Confirme para gerar snapshot imutável do mês e bloquear edições operacionais.</DialogDescription>
+          </DialogHeader>
+          <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-2">
+            <p><strong>Contas a receber:</strong> {formatCurrency(parseFloat(balancete?.contasAReceber || '0'))}</p>
+            <p><strong>Rendimentos:</strong> {formatCurrency(parseFloat(balancete?.totalRendimentos || '0'))}</p>
+            <p><strong>Inadimplência (membros):</strong> {balancete?.inadimplenciaSegmentada?.membros ?? 0}</p>
+            <p><strong>Inadimplência (externos c/ dívida):</strong> {balancete?.inadimplenciaSegmentada?.externosComDivida ?? 0}</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCloseCycleConfirmOpen(false)} className="rounded-lg">Cancelar</Button>
+            <Button onClick={handleCloseCycle} disabled={closeCycleMutation.isPending || isCurrentMonthClosed} className="bg-gray-900 text-white rounded-lg">
+              {isCurrentMonthClosed ? 'Ciclo já fechado' : closeCycleMutation.isPending ? 'Fechando...' : 'Confirmar Fechamento'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

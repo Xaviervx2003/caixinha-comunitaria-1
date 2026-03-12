@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Activity, Banknote, Calendar, Download, Percent,
   RotateCcw, TrendingDown, TrendingUp, Upload, History, FileText,
   CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight,
-  Wallet, HandCoins // Adicionados para o Cofre
+  Wallet, HandCoins, FlaskConical // Adicionados para o Cofre
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { formatCurrency } from '@/lib/format-currency';
@@ -14,6 +14,7 @@ import { VencimentoAlert } from '@/components/VencimentoAlert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { CycleClosingModal } from '../CycleClosingModal';
 import { Award } from 'lucide-react';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
 // ── Tipos ────────────────────────────────────────────────────
 type NextMonthEstimate = {
   nextMonth: string;
@@ -28,6 +29,8 @@ type DashboardSectionProps = {
   totalFees: number;
   totalInterest: number;
   totalDebts: number;
+  balancete?: any;
+  isCurrentMonthClosed?: boolean;
   nextMonthEstimate?: NextMonthEstimate;
   isEstimateExpanded: boolean;
   participants: Participant[];
@@ -36,6 +39,9 @@ type DashboardSectionProps = {
   onResetMonth: () => void;
   onImportCSV: () => void;
   onViewAllParticipants: () => void;
+  onCloseCycle: () => void;
+  monthlyHistory?: Array<{ month: string; totalFeesCollected: string; totalInterestCollected: string }>;
+  dueAlerts?: { month: string; dueDay: number; alerts: Array<{ participantId: number; name: string; level: 'upcoming' | 'due_soon' | 'overdue'; message: string }> };
 };
 
 // ── Constantes ───────────────────────────────────────────────
@@ -309,15 +315,23 @@ export function DashboardSection({
   totalDebts,
   nextMonthEstimate,
   isEstimateExpanded,
+  balancete,
+  isCurrentMonthClosed = false,
   participants,
   allTransactions,
   onToggleEstimate,
   onResetMonth,
   onImportCSV,
   onViewAllParticipants,
+  onCloseCycle,
+  monthlyHistory = [],
+  dueAlerts,
 }: DashboardSectionProps) {
   const [isSnapshotOpen, setIsSnapshotOpen] = useState(false);
   const [isClosingOpen, setIsClosingOpen] = useState(false);
+  const [isScenarioOpen, setIsScenarioOpen] = useState(false);
+  const [scenarioInterestRate, setScenarioInterestRate] = useState('10');
+  const [scenarioAdherence, setScenarioAdherence] = useState('100');
   // ─── MATEMÁTICA DO "DINHEIRO PARADO" (LIQUIDEZ) ──────────────
   // 1. Tudo o que entrou na conta (Mensalidades pagas + Amortizações)
   const totalEntradas = allTransactions
@@ -332,13 +346,37 @@ export function DashboardSection({
   // 3. O Dinheiro que está literalmente parado na conta bancária pronto a emprestar
   const caixaDisponivel = totalEntradas - totalSaidas;
 
+  const inadSeg = balancete?.inadimplenciaSegmentada || { membros: 0, externosComDivida: 0, total: 0 };
+  const parsedInterestRate = Math.min(100, Math.max(0, Number(scenarioInterestRate) || 0)) / 100;
+  const parsedAdherence = Math.min(100, Math.max(0, Number(scenarioAdherence) || 0)) / 100;
+
+  const { data: scenarioResult, isFetching: isScenarioLoading } = trpc.caixinha.simulateScenario.useQuery(
+    { interestRate: parsedInterestRate, expectedAdherence: parsedAdherence },
+    { enabled: isScenarioOpen }
+  );
+
+  const trendData = useMemo(() => {
+    return [...monthlyHistory]
+      .slice()
+      .reverse()
+      .map((row) => {
+        const fees = parseFloat(row.totalFeesCollected || '0');
+        const interest = parseFloat(row.totalInterestCollected || '0');
+        return {
+          month: row.month,
+          arrecadacao: fees + interest,
+          patrimonio: fees,
+        };
+      });
+  }, [monthlyHistory]);
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
 
       {/* ── Alerta de Vencimento ── */}
       <VencimentoAlert
-        participants={participants}
-        dueDay={nextMonthEstimate?.dueDay ?? 5}
+        alerts={dueAlerts?.alerts || []}
+        dueDay={dueAlerts?.dueDay ?? nextMonthEstimate?.dueDay ?? 5}
       />
 
       {/* ── O COFRE GIGANTE (CAIXA DISPONÍVEL) ── */}
@@ -379,12 +417,13 @@ export function DashboardSection({
       </div>
 
       {/* ── Stat Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           { label: 'Cotas Arrecadadas', value: formatCurrency(totalFees), icon: Banknote, color: '#00C853', iconBg: '#dcfce7' },
           { label: 'Juros Arrecadados', value: formatCurrency(totalInterest), icon: Percent, color: '#F59E0B', iconBg: '#fef3c7' },
           { label: 'Total em Dívidas', value: formatCurrency(totalDebts), icon: TrendingDown, color: '#EF4444', iconBg: '#fee2e2' },
           { label: 'Total Arrecadado', value: formatCurrency(totalFees + totalInterest), icon: Activity, color: '#8B5CF6', iconBg: '#ede9fe' },
+          { label: 'Inadimplência', value: String(inadSeg.total), icon: Clock, color: '#EF4444', iconBg: '#fee2e2' },
         ].map((stat) => {
           const Icon = stat.icon;
           return (
@@ -446,6 +485,32 @@ export function DashboardSection({
         </div>
       )}
 
+
+      {/* ── Tendência Mensal (MoM) ── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm font-bold text-gray-700">Tendência Mensal (MoM)</p>
+          <span className="text-xs text-gray-400">Arrecadação e patrimônio por mês</span>
+        </div>
+        {trendData.length === 0 ? (
+          <p className="text-sm text-gray-400">Sem snapshots suficientes para exibir a tendência.</p>
+        ) : (
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip formatter={(v: any) => formatCurrency(Number(v || 0))} />
+                <Legend />
+                <Line type="monotone" dataKey="arrecadacao" stroke="#8B5CF6" strokeWidth={2.5} dot={false} name="Arrecadação" />
+                <Line type="monotone" dataKey="patrimonio" stroke="#00C853" strokeWidth={2.5} dot={false} name="Patrimônio" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
       {/* ── Ações Rápidas ── */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
         <p className="text-sm font-bold text-gray-700 mb-4">Ações Rápidas</p>
@@ -486,6 +551,18 @@ export function DashboardSection({
             className="flex items-center gap-2 bg-purple-50 text-purple-600 border border-purple-200 px-4 py-2 rounded-lg font-bold text-sm hover:bg-purple-100 transition-colors">
             <History className="w-4 h-4" /> Histórico por Mês
           </button>
+          <button onClick={() => setIsClosingOpen(true)}
+            className="flex items-center gap-2 bg-yellow-50 text-yellow-700 border border-yellow-200 px-4 py-2 rounded-lg font-bold text-sm hover:bg-yellow-100 transition-colors">
+            <Award className="w-4 h-4" /> Distribuição de Lucros
+          </button>
+          <button onClick={onCloseCycle} disabled={isCurrentMonthClosed}
+            className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-yellow-600 text-white border-0 shadow-lg px-4 py-2 rounded-lg font-black text-sm hover:from-amber-600 hover:to-yellow-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+            <Award className="w-4 h-4" /> {isCurrentMonthClosed ? 'Ciclo Fechado' : 'Fechar Ciclo'}
+          </button>
+          <button onClick={() => setIsScenarioOpen(true)}
+            className="flex items-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-100 transition-colors">
+            <FlaskConical className="w-4 h-4" /> Simular Cenário
+          </button>
           {/* BOTÃO DO PDF PRESERVADO E FUNCIONAL! */}
           <button onClick={() => generatePDF(participants, allTransactions, nextMonthEstimate?.dueDay ?? 5)}
             className="flex items-center gap-2 bg-gray-800 text-white border border-gray-700 px-4 py-2 rounded-lg font-bold text-sm hover:bg-gray-900 transition-colors">
@@ -493,10 +570,6 @@ export function DashboardSection({
           </button>
         </div>
       </div>
-<button onClick={() => setIsClosingOpen(true)}
-            className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-yellow-600 text-white border-0 shadow-lg px-4 py-2 rounded-lg font-black text-sm hover:from-amber-600 hover:to-yellow-700 transition-all transform hover:scale-105">
-            <Award className="w-4 h-4" /> Distribuição de Lucros
-          </button>
       {/* ── Resumo dos Membros ── */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
         <div className="flex items-center justify-between mb-4">
@@ -532,6 +605,32 @@ export function DashboardSection({
           )}
         </div>
       </div>
+
+
+      <Dialog open={isScenarioOpen} onOpenChange={setIsScenarioOpen}>
+        <DialogContent className="bg-white rounded-xl border-0 shadow-2xl w-full sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black">Simulador de Cenários</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-2">
+            <div>
+              <p className="text-xs font-bold text-gray-500 mb-1">Taxa de juros mensal (%)</p>
+              <input value={scenarioInterestRate} onChange={(e) => setScenarioInterestRate(e.target.value)} type="number" min={0} max={100} className="w-full border-2 border-gray-200 rounded-lg px-3 h-10" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-500 mb-1">Aderência esperada (%)</p>
+              <input value={scenarioAdherence} onChange={(e) => setScenarioAdherence(e.target.value)} type="number" min={0} max={100} className="w-full border-2 border-gray-200 rounded-lg px-3 h-10" />
+            </div>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-4 text-sm">
+            <p><strong>Cenário atual (dashboard):</strong> {formatCurrency(totalFees + totalInterest)}</p>
+            <p><strong>Simulado:</strong> {formatCurrency(parseFloat(scenarioResult?.estimatedTotal || '0'))}</p>
+            <p><strong>Cotas simuladas:</strong> {formatCurrency(parseFloat(scenarioResult?.estimatedQuotas || '0'))}</p>
+            <p><strong>Juros simulados:</strong> {formatCurrency(parseFloat(scenarioResult?.estimatedInterest || '0'))}</p>
+            {isScenarioLoading && <p className="text-xs text-gray-500 mt-1">Calculando cenário...</p>}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Modal Snapshot ── */}
       <MonthSnapshotModal isOpen={isSnapshotOpen} onClose={() => setIsSnapshotOpen(false)} />
