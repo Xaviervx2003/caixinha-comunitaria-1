@@ -127,18 +127,40 @@ export default function Home() {
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
 
-  const totalPaymentAmount = allTransactions.filter((t) => t.type === 'payment').reduce((acc, t) => acc + parseFloat(t.amount.toString()), 0);
-  const totalAmortizationAmount = allTransactions.filter((t) => t.type === 'amortization').reduce((acc, t) => acc + parseFloat(t.amount.toString()), 0);
-  const paymentCount = allTransactions.filter((t) => t.type === 'payment').length;
-  const MONTHLY_FEE = 200;
-  const totalFees = paymentCount * MONTHLY_FEE + totalAmortizationAmount;
-  const totalInterest = totalPaymentAmount - paymentCount * MONTHLY_FEE;
-  const totalDebts = participants.reduce((acc, p) => acc + parseFloat(p.currentDebt.toString()), 0);
-
   // ── Lógica de Filtragem de Participantes ────────────────────
   const filteredParticipants = participants.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // ── MATEMÁTICA DO DASHBOARD (CORRIGIDA PARA SUPORTAR EXTERNOS) ──
+  const totalAmortizationAmount = allTransactions.filter((t) => t.type === 'amortization').reduce((acc, t) => acc + parseFloat(t.amount.toString()), 0);
+  const totalDebts = participants.reduce((acc, p) => acc + parseFloat(p.currentDebt.toString()), 0);
+
+  let calculatedQuotas = 0;
+  let calculatedInterest = 0;
+
+  allTransactions.forEach((t) => {
+    if (t.type === 'payment') {
+      const p = participants.find(part => part.id === t.participantId);
+      const isExternal = p?.role === 'external';
+      const amount = parseFloat(t.amount.toString());
+
+      if (isExternal) {
+        // Tomador Externo não paga cota. Todo o valor pago é lucro (Juros/Multa).
+        calculatedInterest += amount;
+      } else {
+        // Membro paga R$ 200 de Cota. O que sobrar é lucro (Juros/Multa).
+        const quota = Math.min(amount, 200);
+        const interest = amount - quota;
+        calculatedQuotas += quota;
+        calculatedInterest += interest;
+      }
+    }
+  });
+
+  const totalFees = calculatedQuotas + totalAmortizationAmount;
+  const totalInterest = calculatedInterest;
+
 
   // ── Handlers ────────────────────────────────────────────────
   const handleAddParticipant = async () => {
@@ -150,7 +172,7 @@ export default function Home() {
         email: newParticipantEmail.trim() || undefined, 
         totalLoan: newParticipantLoan ? parseFloat(newParticipantLoan) : 0,
         role: newParticipantRole
-      } as any); // <-- FIX DO ERRO DE TYPE DO TRPC
+      } as any); 
       setIsAddParticipantOpen(false); 
       setNewParticipantName(''); 
       setNewParticipantEmail(''); 
@@ -410,7 +432,7 @@ export default function Home() {
                       {filteredParticipants.map((participant) => (
                         <ParticipantCard
                           key={participant.id}
-                          participant={participant}
+                          participant={participant as any}
                           onPayment={() => { setSelectedParticipantId(participant.id); setIsPaymentOpen(true); }}
                           onAmortize={() => { setSelectedParticipantId(participant.id); setAmortizeAmount(''); setIsAmortizeOpen(true); }}
                           onAddLoan={() => { setSelectedParticipantId(participant.id); setLoanAmount(''); setIsAddLoanOpen(true); }}
@@ -699,7 +721,7 @@ export default function Home() {
               <>
                 <TransactionHistory 
                   participantId={selectedParticipant.id} 
-                  transactions={allTransactions.filter(t => t.participantId === selectedParticipant.id) as any} // <-- FIX DO ERRO DO TRANSACTION_TYPE
+                  transactions={allTransactions.filter(t => t.participantId === selectedParticipant.id) as any} 
                   monthlyPayments={selectedParticipant.monthlyPayments || []} 
                   onUnmarkPayment={() => {}} 
                 />

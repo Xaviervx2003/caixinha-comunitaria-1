@@ -6,12 +6,13 @@ export type Participant = {
   currentDebt: number | string;
   monthlyPayments?: { id: number; month: string; year: number; paid: boolean | number }[];
   createdAt?: string | Date | null;
+  role?: 'member' | 'external'; // 🟢 CORREÇÃO: O TypeScript agora conhece a propriedade "role"
 };
 
 export type Transaction = {
   id: number;
   participantId: number;
-  type: 'payment' | 'amortization' | string;
+  type: 'payment' | 'amortization' | 'loan' | 'reversal' | string; // 🟢 Adicionados os tipos de transação completos
   amount: number | string;
   month?: string;
   year?: number;
