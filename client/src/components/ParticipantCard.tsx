@@ -33,6 +33,7 @@ export interface AppParticipant {
   currentDebt: string | number;
   monthlyPayments?: MonthlyPaymentRecord[];
   interestPaid?: boolean;
+  role?: 'member' | 'external'; // 🟢 NOVO: Agora o cartão sabe quem é Membro e quem é Externo
 }
 
 interface ParticipantCardProps {
@@ -149,27 +150,36 @@ export function ParticipantCard({
   const statusText = { green: 'EM DIA', yellow: 'JUROS PAGOS', red: 'PENDENTE' };
   const StatusIcon = { green: CheckCircle2, yellow: AlertCircle, red: XCircle }[status];
 
-  const baseMonthlyTotal = calculateMonthlyTotal(participant.currentDebt);
+  // 🟢 INJETA O ROLE NA MATEMÁTICA DO FRONTEND
+  const userRole = participant.role || 'member';
+  const baseMonthlyTotal = calculateMonthlyTotal(participant.currentDebt, userRole);
   
   const totalAmortizado = Math.max(0, parseFloat(participant.totalLoan as string || '0') - parseFloat(participant.currentDebt as string || '0'));
-  // Tipagem substituindo (p: any) por (p: MonthlyPaymentRecord)
   const paidMonthsCount = monthlyPayments.filter((p: MonthlyPaymentRecord) => p.paid === true || p.paid === 1).length;
-  const totalPagoAproximado = totalAmortizado + (paidMonthsCount * 200);
+  // O Total Pago também isenta os 200 do histórico se for externo
+  const totalPagoAproximado = totalAmortizado + (paidMonthsCount * (userRole === 'external' ? 0 : 200));
   
   let modalPenalty = 0;
   if (monthToPay && paymentDate) {
     const isLate = isLatePayment(`${monthToPay.year}-${monthToPay.monthValue}`, new Date(paymentDate));
     if (isLate) {
-      modalPenalty = calcLatePaymentFee().totalLateCharge.toNumber();
+      modalPenalty = calcLatePaymentFee(userRole).totalLateCharge.toNumber();
     }
   }
   const modalTotal = baseMonthlyTotal + modalPenalty;
 
   return (
-    <div className="bg-white border-2 border-slate-200 shadow-sm rounded-xl p-5 flex flex-col gap-5 hover:border-slate-300 transition-colors">
+    <div className="bg-white border-2 border-slate-200 shadow-sm rounded-xl p-5 flex flex-col gap-5 hover:border-slate-300 transition-colors relative">
       
+      {/* ETIQUETA VISUAL DE EXTERNO */}
+      {userRole === 'external' && (
+        <span className="absolute -top-3 -right-2 bg-blue-100 text-blue-700 border-2 border-blue-200 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm">
+          Tomador Externo
+        </span>
+      )}
+
       {/* HEADER */}
-      <div className="flex justify-between items-start gap-3 cursor-pointer group" onClick={() => setIsExpanded(!isExpanded)}>
+      <div className="flex justify-between items-start gap-3 cursor-pointer group mt-1" onClick={() => setIsExpanded(!isExpanded)}>
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 border-2 border-slate-200">
             <User className="w-6 h-6 text-black" />
@@ -344,9 +354,18 @@ export function ParticipantCard({
               <div className="flex justify-between items-end">
                 <div className="flex flex-col">
                   <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Total a Pagar</span>
-                  <span className="text-xs font-bold text-gray-600 uppercase tracking-tight">
-                    R$ 200,00 + {formatCurrency(calculateMonthlyInterest(participant.currentDebt))} (juros)
-                  </span>
+                  
+                  {/* 🟢 O TEXTO MUDA SE FOR EXTERNO */}
+                  {userRole === 'external' ? (
+                    <span className="text-xs font-bold text-gray-600 uppercase tracking-tight">
+                      Apenas Juros: R$ {formatCurrency(calculateMonthlyInterest(participant.currentDebt, userRole))}
+                    </span>
+                  ) : (
+                    <span className="text-xs font-bold text-gray-600 uppercase tracking-tight">
+                      R$ 200,00 + {formatCurrency(calculateMonthlyInterest(participant.currentDebt, userRole))} (juros)
+                    </span>
+                  )}
+                  
                   {modalPenalty > 0 && (
                     <span className="text-xs font-black text-red-600 mt-1 uppercase tracking-tight animate-in fade-in">
                       + {formatCurrency(modalPenalty)} (Multa + Mora)

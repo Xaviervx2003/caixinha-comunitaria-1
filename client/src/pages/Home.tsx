@@ -105,10 +105,11 @@ export default function Home() {
   const [chartParticipantId, setChartParticipantId] = useState<number | null>(null);
 
   // ── Estados dos Formulários e Busca ─────────────────────────
-  const [searchQuery, setSearchQuery] = useState(''); // <-- ESTADO DA BARRA DE PESQUISA
+  const [searchQuery, setSearchQuery] = useState('');
   const [newParticipantName, setNewParticipantName] = useState('');
   const [newParticipantEmail, setNewParticipantEmail] = useState('');
   const [newParticipantLoan, setNewParticipantLoan] = useState('');
+  const [newParticipantRole, setNewParticipantRole] = useState<'member' | 'external'>('member'); 
   const [selectedParticipantId, setSelectedParticipantId] = useState<number | null>(null);
   const [amortizeAmount, setAmortizeAmount] = useState('');
   const [loanAmount, setLoanAmount] = useState('');
@@ -144,8 +145,17 @@ export default function Home() {
     if (!newParticipantName.trim()) { showErrorToast('Nome obrigatório'); return; }
     try { await getOrCreateCaixinhaMutation.mutateAsync(); } catch { showErrorToast('Erro ao inicializar caixinha'); return; }
     try {
-      await addParticipantMutation.mutateAsync({ name: newParticipantName.trim(), email: newParticipantEmail.trim() || undefined, totalLoan: newParticipantLoan ? parseFloat(newParticipantLoan) : 0 });
-      setIsAddParticipantOpen(false); setNewParticipantName(''); setNewParticipantEmail(''); setNewParticipantLoan('');
+      await addParticipantMutation.mutateAsync({ 
+        name: newParticipantName.trim(), 
+        email: newParticipantEmail.trim() || undefined, 
+        totalLoan: newParticipantLoan ? parseFloat(newParticipantLoan) : 0,
+        role: newParticipantRole
+      } as any); // <-- FIX DO ERRO DE TYPE DO TRPC
+      setIsAddParticipantOpen(false); 
+      setNewParticipantName(''); 
+      setNewParticipantEmail(''); 
+      setNewParticipantLoan('');
+      setNewParticipantRole('member'); 
       showSuccessToast(`${newParticipantName} adicionado!`);
     } catch { showErrorToast('Erro ao adicionar participante'); }
   };
@@ -432,9 +442,6 @@ export default function Home() {
             </div>
           )}
 
-          
-          
-          
           {/* ── TRANSAÇÕES ─────────────────────────────────────── */}
           {activeSection === 'transacoes' && (
             <div className="max-w-4xl mx-auto space-y-6">
@@ -458,15 +465,15 @@ export default function Home() {
                       const bgBadge = isPayment ? 'bg-green-50 text-green-700' : isAmort ? 'bg-blue-50 text-blue-700' : isLoan ? 'bg-orange-50 text-orange-700' : 'bg-red-50 text-red-700';
                       return (
                         <div key={t.id} className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors">
-                          <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                          <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
                             <span className="text-xs font-black text-gray-500">{p?.name?.charAt(0) ?? '?'}</span>
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold text-gray-800 truncate">{p?.name ?? 'Desconhecido'}</p>
                             <p className="text-xs text-gray-400 truncate">{t.description || (t.month ? `Ref: ${t.month}` : '')}</p>
                           </div>
-                          <span className={`text-xs font-bold px-2 py-1 rounded-full ${bgBadge} flex-shrink-0 hidden sm:inline`}>{label}</span>
-                          <span className={`text-sm font-black flex-shrink-0 ${color}`}>
+                          <span className={`text-xs font-bold px-2 py-1 rounded-full ${bgBadge} shrink-0 hidden sm:inline`}>{label}</span>
+                          <span className={`text-sm font-black shrink-0 ${color}`}>
                             {sign}{formatCurrency(parseFloat(t.amount.toString()))}
                           </span>
                         </div>
@@ -486,12 +493,12 @@ export default function Home() {
                   ) : (
                     auditLogEntries.slice(0, 30).map((e) => (
                       <div key={e.id} className="flex items-start gap-4 px-6 py-4 hover:bg-gray-50">
-                        <div className="w-2 h-2 rounded-full bg-[#00C853] mt-2 flex-shrink-0" />
+                        <div className="w-2 h-2 rounded-full bg-[#00C853] mt-2 shrink-0" />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-bold text-gray-800">{e.participantName}</p>
                           <p className="text-xs text-gray-500 truncate">{e.description || e.action}</p>
                         </div>
-                        <span className="text-xs text-gray-400 flex-shrink-0">
+                        <span className="text-xs text-gray-400 shrink-0">
                           {e.createdAt ? new Date(e.createdAt.toString()).toLocaleDateString('pt-BR') : ''}
                         </span>
                       </div>
@@ -578,12 +585,26 @@ export default function Home() {
               <Label className="font-bold text-sm">Nome</Label>
               <Input value={newParticipantName} onChange={(e) => setNewParticipantName(e.target.value)} className="border-2 rounded-lg h-11" placeholder="João Silva" />
             </div>
+
+            {/* 🟢 NOVO CAMPO: TIPO DE PARTICIPANTE */}
+            <div className="grid gap-2">
+              <Label className="font-bold text-sm">Tipo de Participante</Label>
+              <select 
+                value={newParticipantRole} 
+                onChange={(e) => setNewParticipantRole(e.target.value as 'member' | 'external')} 
+                className="border-2 border-gray-200 rounded-lg h-11 px-3 font-medium text-sm focus:outline-none focus:border-[#00C853]"
+              >
+                <option value="member">Membro (Paga R$ 200 + Juros)</option>
+                <option value="external">Tomador Externo (Paga APENAS Juros)</option>
+              </select>
+            </div>
+
             <div className="grid gap-2">
               <Label className="font-bold text-sm">Email (opcional)</Label>
               <Input type="email" value={newParticipantEmail} onChange={(e) => setNewParticipantEmail(e.target.value)} className="border-2 rounded-lg h-11" placeholder="joao@email.com" />
             </div>
             <div className="grid gap-2">
-              <Label className="font-bold text-sm">Valor do Empréstimo</Label>
+              <Label className="font-bold text-sm">Valor do Empréstimo Inicial</Label>
               <Input type="number" value={newParticipantLoan} onChange={(e) => setNewParticipantLoan(e.target.value)} className="border-2 rounded-lg h-11" placeholder="0,00" />
             </div>
           </div>
@@ -614,7 +635,6 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL DE PAGAMENTO (COM O CAMPO DE DATA ADICIONADO) */}
       <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
         <DialogContent className="bg-white rounded-xl border-0 shadow-2xl w-full sm:max-w-[425px]">
           <DialogHeader>
@@ -622,8 +642,6 @@ export default function Home() {
             <DialogDescription>Pagamento de {selectedParticipant?.name}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            
-            {/* NOVO CAMPO DE DATA */}
             <div className="grid gap-2">
               <Label className="font-bold text-sm">Data Real do Pagamento</Label>
               <Input 
@@ -633,7 +651,6 @@ export default function Home() {
                 className="border-2 rounded-lg h-11 font-medium" 
               />
             </div>
-
             <div className="grid gap-2">
               <Label className="font-bold text-sm">Mês Referência</Label>
               <select value={paymentMonth} onChange={(e) => setPaymentMonth(e.target.value)} className="border-2 border-gray-200 rounded-lg h-11 px-3 font-medium text-sm focus:outline-none focus:border-[#00C853]">
@@ -680,7 +697,12 @@ export default function Home() {
           <div className="py-4 space-y-6 max-h-[60vh] overflow-y-auto">
             {selectedParticipant && (
               <>
-                <TransactionHistory participantId={selectedParticipant.id} transactions={allTransactions.filter(t => t.participantId === selectedParticipant.id)} monthlyPayments={selectedParticipant.monthlyPayments || []} onUnmarkPayment={() => {}} />
+                <TransactionHistory 
+                  participantId={selectedParticipant.id} 
+                  transactions={allTransactions.filter(t => t.participantId === selectedParticipant.id) as any} // <-- FIX DO ERRO DO TRANSACTION_TYPE
+                  monthlyPayments={selectedParticipant.monthlyPayments || []} 
+                  onUnmarkPayment={() => {}} 
+                />
                 <AuditLog entries={auditLogEntries.filter(e => e.participantId === selectedParticipant.id)} participantId={selectedParticipant.id} />
               </>
             )}

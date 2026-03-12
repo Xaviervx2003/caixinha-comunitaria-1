@@ -70,6 +70,7 @@ export const participants = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
     isActive: boolean("isActive").default(true).notNull(),
+    role: mysqlEnum("role", ["member", "external"]).default("member").notNull(),
   },
   (table) => ({
     caixinhaIdx: index("idx_participants_caixinha").on(table.caixinhaId),

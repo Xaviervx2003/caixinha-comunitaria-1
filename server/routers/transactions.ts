@@ -91,7 +91,6 @@ export const transactionsProcedures = {
       month: monthSchema,
       year: z.number().int().min(2020).max(2100),
       idempotencyKey: z.string().uuid().optional(),
-      // ✅ Data real do pagamento — usada para calcular multa corretamente
       paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -121,16 +120,20 @@ export const transactionsProcedures = {
         if (existingPayment.length > 0 && existingPayment[0].paid === true)
           throw new TRPCError({ code: "CONFLICT", message: "Mês já pago." });
 
-        // ✅ USA A DATA INFORMADA — não mais new Date() (hoje)
         const paymentDate = input.paymentDate
           ? new Date(input.paymentDate + 'T12:00:00')
           : new Date();
 
         const late = isLatePayment(input.month, paymentDate, caixinha.paymentDueDay ?? 5);
         const currentDebt = new Decimal(p.currentDebt);
+        
+        // 🟢 LÊ A ETIQUETA DO BANCO DE DADOS
+        const role = (p.role || 'member') as 'member' | 'external';
+        
+        // 🟢 INJETA A ETIQUETA NA MATEMÁTICA
         const calc = late
-          ? calcLateMonthlyPayment(currentDebt)
-          : { ...calcMonthlyPayment(currentDebt), isLate: false, lateFee: new Decimal(0), lateInterest: new Decimal(0), totalLateCharge: new Decimal(0) };
+          ? calcLateMonthlyPayment(currentDebt, role)
+          : { ...calcMonthlyPayment(currentDebt, role), isLate: false, lateFee: new Decimal(0), lateInterest: new Decimal(0), totalLateCharge: new Decimal(0) };
 
         const paidAt = paymentDate;
 
@@ -149,9 +152,11 @@ export const transactionsProcedures = {
           });
         }
 
+        // Descrição adaptada caso seja externo (isenta a palavra "Cota")
+        const descBase = role === 'external' ? `Juros R$ ${calc.interest.toFixed(2)}` : `Cota R$ 200,00 + Juros R$ ${calc.interest.toFixed(2)}`;
         const description = late
-          ? `Cota R$ 200,00 + Juros R$ ${calc.interest.toFixed(2)} + Multa R$ ${calc.lateFee?.toFixed(2)} + Mora R$ ${calc.lateInterest?.toFixed(2)} (ATRASO)`
-          : `Cota R$ 200,00 + Juros R$ ${calc.interest.toFixed(2)}`;
+          ? `${descBase} + Multa R$ ${calc.lateFee?.toFixed(2)} + Mora R$ ${calc.lateInterest?.toFixed(2)} (ATRASO)`
+          : descBase;
 
         try {
           await tx.insert(transactions).values({
@@ -159,7 +164,7 @@ export const transactionsProcedures = {
             type: "payment",
             amount: calc.total.toFixed(2),
             balanceBefore: currentDebt.toFixed(2),
-            balanceAfter: currentDebt.toFixed(2),
+            balanceAfter: currentDebt.toFixed(2), // Amortização muda a dívida, pagamento normal não
             month: input.month,
             year: input.year,
             description,
@@ -219,9 +224,11 @@ export const transactionsProcedures = {
       )).limit(1);
 
       const currentDebt = new Decimal(p.currentDebt);
+      const role = (p.role || 'member') as 'member' | 'external'; // 🟢 ETIQUETA INJETADA AQUI
+      
       const reversalAmountStr = originalTx
         ? new Decimal(originalTx.amount).abs().toFixed(2)
-        : calcMonthlyPayment(currentDebt).total.toFixed(2);
+        : calcMonthlyPayment(currentDebt, role).total.toFixed(2);
 
       await tx.delete(transactions).where(and(
         eq(transactions.participantId, input.participantId),
@@ -263,10 +270,14 @@ export const transactionsProcedures = {
           eq(transactions.month, month),
           eq(transactions.year, year),
         )).limit(1);
+        
         const currentDebt = new Decimal(participant.currentDebt);
+        const role = (participant.role || 'member') as 'member' | 'external'; // 🟢 ETIQUETA INJETADA AQUI
+        
         const reversalAmountStr = originalTx
           ? new Decimal(originalTx.amount).abs().toFixed(2)
-          : calcMonthlyPayment(currentDebt).total.toFixed(2);
+          : calcMonthlyPayment(currentDebt, role).total.toFixed(2);
+          
         await tx.insert(transactions).values({ participantId: mp.participantId, type: "reversal", amount: reversalAmountStr, balanceBefore: currentDebt.toFixed(2), balanceAfter: currentDebt.toFixed(2), month, year, description: `Estorno de pagamento: ${month}/${year}` });
         await tx.insert(auditLog).values({ participantId: mp.participantId, participantName: participant.name, action: "payment_unmarked", month, year, description: `Pagamento de ${month}/${year} desmarcado (reset)` });
       }

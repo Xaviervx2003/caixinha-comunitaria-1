@@ -19,28 +19,35 @@ export const INTEREST_RATE = 0.10;
 // ─────────────────────────────────────────────────────
 // 2. LÓGICA CORE (Usada pelo Backend e Frontend)
 // ─────────────────────────────────────────────────────
-export function calcMonthlyPayment(currentDebt: Decimal) {
+
+// 🟢 ATUALIZADO: Aceita o "role" para isentar a cota se for externo
+export function calcMonthlyPayment(currentDebt: Decimal, role: 'member' | 'external' = 'member') {
   const interest = currentDebt
     .mul(CAIXINHA_CONFIG.INTEREST_RATE)
     .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
-  const total = CAIXINHA_CONFIG.MONTHLY_QUOTA
+  const quota = role === 'external' ? new Decimal(0) : CAIXINHA_CONFIG.MONTHLY_QUOTA;
+
+  const total = quota
     .add(interest)
     .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
-  return { interest, total };
+  return { quota, interest, total };
 }
 
-export function calcLatePaymentFee(): {
+// 🟢 ATUALIZADO: A multa é sobre a cota. Externo não paga cota, logo não tem multa fixa.
+export function calcLatePaymentFee(role: 'member' | 'external' = 'member'): {
   lateFee: Decimal;
   lateInterest: Decimal;
   totalLateCharge: Decimal;
 } {
-  const lateFee = CAIXINHA_CONFIG.MONTHLY_QUOTA
+  const baseValue = role === 'external' ? new Decimal(0) : CAIXINHA_CONFIG.MONTHLY_QUOTA;
+
+  const lateFee = baseValue
     .mul(CAIXINHA_CONFIG.LATE_FEE_RATE)
     .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
-  const lateInterest = CAIXINHA_CONFIG.MONTHLY_QUOTA
+  const lateInterest = baseValue
     .mul(CAIXINHA_CONFIG.LATE_INTEREST_RATE)
     .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
@@ -51,15 +58,16 @@ export function calcLatePaymentFee(): {
   return { lateFee, lateInterest, totalLateCharge };
 }
 
-export function calcLateMonthlyPayment(currentDebt: Decimal) {
-  const { interest, total: normalTotal } = calcMonthlyPayment(currentDebt);
-  const { lateFee, lateInterest, totalLateCharge } = calcLatePaymentFee();
+export function calcLateMonthlyPayment(currentDebt: Decimal, role: 'member' | 'external' = 'member') {
+  const { quota, interest, total: normalTotal } = calcMonthlyPayment(currentDebt, role);
+  const { lateFee, lateInterest, totalLateCharge } = calcLatePaymentFee(role);
 
   const total = normalTotal
     .add(totalLateCharge)
     .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
   return {
+    quota,
     interest,
     lateFee,
     lateInterest,
@@ -88,24 +96,27 @@ export function isLatePayment(
   return paymentDate > dueDate;
 }
 
+// 🟢 ATUALIZADO: A estimativa do Dashboard agora lê o "role" de cada participante
 export function calcNextMonthEstimate(
-  activeParticipants: Array<{ id: number; name: string; currentDebt: string }>
+  activeParticipants: Array<{ id: number; name: string; currentDebt: string; role?: string }>
 ) {
   let estimatedQuotas   = new Decimal(0);
   let estimatedInterest = new Decimal(0);
 
   const perParticipant = activeParticipants.map((p) => {
     const debt = new Decimal(p.currentDebt);
-    const { interest, total } = calcMonthlyPayment(debt);
+    const role = (p.role as 'member' | 'external') || 'member';
+    
+    const { quota, interest, total } = calcMonthlyPayment(debt, role);
 
-    estimatedQuotas   = estimatedQuotas.add(CAIXINHA_CONFIG.MONTHLY_QUOTA);
+    estimatedQuotas   = estimatedQuotas.add(quota);
     estimatedInterest = estimatedInterest.add(interest);
 
     return {
       id: p.id,
       name: p.name,
       currentDebt: debt.toFixed(2),
-      quota: CAIXINHA_CONFIG.MONTHLY_QUOTA.toFixed(2),
+      quota: quota.toFixed(2),
       interest: interest.toFixed(2),
       total: total.toFixed(2),
     };
@@ -140,16 +151,16 @@ export function calculateProgress(totalLoan: string | number, currentDebt: strin
   return Math.min(100, Math.max(0, pct));
 }
 
-export function calculateMonthlyInterest(currentDebt: string | number): number {
+export function calculateMonthlyInterest(currentDebt: string | number, role: 'member' | 'external' = 'member'): number {
   const debt = new Decimal(currentDebt ?? 0);
   if (debt.isNaN() || debt.lte(0)) return 0;
-  const { interest } = calcMonthlyPayment(debt);
+  const { interest } = calcMonthlyPayment(debt, role);
   return interest.toNumber();
 }
 
-export function calculateMonthlyTotal(currentDebt: string | number): number {
+export function calculateMonthlyTotal(currentDebt: string | number, role: 'member' | 'external' = 'member'): number {
   const debt = new Decimal(currentDebt ?? 0);
-  if (debt.isNaN() || debt.lte(0)) return CAIXINHA_CONFIG.MONTHLY_QUOTA.toNumber();
-  const { total } = calcMonthlyPayment(debt);
+  if (debt.isNaN() || debt.lte(0)) return role === 'external' ? 0 : CAIXINHA_CONFIG.MONTHLY_QUOTA.toNumber();
+  const { total } = calcMonthlyPayment(debt, role);
   return total.toNumber();
 }
