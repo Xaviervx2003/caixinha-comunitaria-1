@@ -4,7 +4,7 @@ import { eq, and, sql, inArray, desc } from "drizzle-orm";
 import { getDb } from "../db";
 import Decimal from "decimal.js";
 import { transactions, participants, monthlyPayments, caixinhaMetadata, monthlySummary } from "../../drizzle/schema";
-import { calcNextMonthEstimate, calculateCollectionsFromTransactions } from "../businessLogic";
+import { calcNextMonthEstimate, calculateCollectionsFromTransactions, CAIXINHA_CONFIG } from "../businessLogic";
 import { getCaixinhaOrThrow } from "./helpers";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -314,7 +314,7 @@ export const dashboardProcedures = {
 
       for (const row of rows) {
         const debt = new Decimal(row.currentDebt);
-        const baseQuota = row.role === 'external' ? 0 : 200;
+        const baseQuota = row.role === 'external' ? 0 : CAIXINHA_CONFIG.MONTHLY_QUOTA.toNumber();
         const interest = debt.mul(interestRate).toNumber();
         quotas += baseQuota * expectedAdherence;
         interests += interest * expectedAdherence;
