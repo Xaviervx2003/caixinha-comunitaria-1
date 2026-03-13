@@ -92,6 +92,7 @@ export const transactionsProcedures = {
       year: z.number().int().min(2020).max(2100),
       idempotencyKey: z.string().uuid().optional(),
       paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      quotaMultiplier: z.number().int().min(1).optional().default(1), // 🟢 1. PORTA ABERTA PARA O MULTIPLICADOR
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -130,10 +131,19 @@ export const transactionsProcedures = {
         // 🟢 LÊ A ETIQUETA DO BANCO DE DADOS
         const role = (p.role || 'member') as 'member' | 'external';
         
-        // 🟢 INJETA A ETIQUETA NA MATEMÁTICA
-        const calc = late
+        // 🟢 INJETA A ETIQUETA NA MATEMÁTICA E TRANSFORMA EM LET PARA PODER MODIFICAR
+        let calc = late
           ? calcLateMonthlyPayment(currentDebt, role)
           : { ...calcMonthlyPayment(currentDebt, role), isLate: false, lateFee: new Decimal(0), lateInterest: new Decimal(0), totalLateCharge: new Decimal(0) };
+
+        // 🟢 2. A MATEMÁTICA DO BACKEND AGORA MULTIPLICA A COTA
+        const multiplier = input.quotaMultiplier ?? 1;
+        if (multiplier > 1 && role !== 'external') {
+          const baseQuota = new Decimal(calc.quota as any);
+          const extraQuota = baseQuota.mul(multiplier - 1);
+          calc.total = new Decimal(calc.total as any).add(extraQuota) as any; // Soma as cotas extras no total
+          calc.quota = baseQuota.mul(multiplier) as any; // Atualiza a cota para fins de extrato
+        }
 
         const paidAt = paymentDate;
 
@@ -152,8 +162,11 @@ export const transactionsProcedures = {
           });
         }
 
-        // Descrição adaptada caso seja externo (isenta a palavra "Cota")
-        const descBase = role === 'external' ? `Juros R$ ${calc.interest.toFixed(2)}` : `Cota R$ 200,00 + Juros R$ ${calc.interest.toFixed(2)}`;
+        // 🟢 3. DESCRIÇÃO INTELIGENTE (Mostra se for 2x, 3x, etc no Extrato)
+        const descBase = role === 'external' 
+          ? `Juros R$ ${new Decimal(calc.interest as any).toFixed(2)}` 
+          : `Cota ${multiplier > 1 ? `(${multiplier}x) ` : ''}R$ ${new Decimal(calc.quota as any).toFixed(2)} + Juros R$ ${new Decimal(calc.interest as any).toFixed(2)}`;
+          
         const description = late
           ? `${descBase} + Multa R$ ${calc.lateFee?.toFixed(2)} + Mora R$ ${calc.lateInterest?.toFixed(2)} (ATRASO)`
           : descBase;
@@ -162,7 +175,7 @@ export const transactionsProcedures = {
           await tx.insert(transactions).values({
             participantId: input.participantId,
             type: "payment",
-            amount: calc.total.toFixed(2),
+            amount: new Decimal(calc.total as any).toFixed(2),
             balanceBefore: currentDebt.toFixed(2),
             balanceAfter: currentDebt.toFixed(2), // Amortização muda a dívida, pagamento normal não
             month: input.month,
@@ -181,11 +194,11 @@ export const transactionsProcedures = {
           action: "payment_marked",
           month: input.month,
           year: input.year,
-          amount: calc.total.toFixed(2),
+          amount: new Decimal(calc.total as any).toFixed(2),
           description,
         });
 
-        return { success: true, isLate: late, total: calc.total.toFixed(2) };
+        return { success: true, isLate: late, total: new Decimal(calc.total as any).toFixed(2) };
       });
     }),
 
@@ -228,7 +241,7 @@ export const transactionsProcedures = {
       )).limit(1);
 
       const currentDebt = new Decimal(p.currentDebt);
-      const role = (p.role || 'member') as 'member' | 'external'; // 🟢 ETIQUETA INJETADA AQUI
+      const role = (p.role || 'member') as 'member' | 'external'; 
       
       const reversalAmountStr = originalTx
         ? new Decimal(originalTx.amount).abs().toFixed(2)
@@ -282,7 +295,7 @@ export const transactionsProcedures = {
         )).limit(1);
         
         const currentDebt = new Decimal(participant.currentDebt);
-        const role = (participant.role || 'member') as 'member' | 'external'; // 🟢 ETIQUETA INJETADA AQUI
+        const role = (participant.role || 'member') as 'member' | 'external'; 
         
         const reversalAmountStr = originalTx
           ? new Decimal(originalTx.amount).abs().toFixed(2)

@@ -97,6 +97,19 @@ export default function Home() {
   const updateSettingsMutation = trpc.caixinha.updateCaixinhaSettings.useMutation({ onSuccess: () => showSuccessToast('Configurações salvas!') });
   const closeCycleMutation = trpc.caixinha.closeCycleSnapshot.useMutation({ onSuccess: invalidateAll });
 
+  // 🟢 NOVA MUTATION: Apagar Vários
+  const deleteMultipleParticipantsMutation = trpc.caixinha.deleteMultipleParticipants.useMutation({
+    onSuccess: () => {
+      invalidateAll();
+      setIsSelectionMode(false);
+      setSelectedForDelete([]);
+      setIsBulkDeleteConfirmOpen(false);
+      showSuccessToast('Participantes excluídos com sucesso!');
+    },
+    onError: () => showErrorToast('Erro ao excluir participantes'),
+  });
+
+
   // ── Estados dos Modais ───────────────────────────────────────
   const [isAddParticipantOpen, setIsAddParticipantOpen] = useState(false);
   const [isAddLoanOpen, setIsAddLoanOpen] = useState(false);
@@ -114,6 +127,12 @@ export default function Home() {
   const [isEstimateExpanded, setIsEstimateExpanded] = useState(false);
   const [isCloseCycleConfirmOpen, setIsCloseCycleConfirmOpen] = useState(false);
   const [chartParticipantId, setChartParticipantId] = useState<number | null>(null);
+
+  // 🟢 NOVOS ESTADOS: MODO DE SELEÇÃO
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<number[]>([]);
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+
 
   // ── Formulários ──────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
@@ -389,10 +408,33 @@ export default function Home() {
                         <p className="text-xs text-gray-500 font-bold">{participants.length} participantes registados</p>
                       </div>
                     </div>
-                    <div className="relative w-full sm:w-80">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <Input placeholder="Buscar por nome..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-9 border-2 border-gray-200 rounded-xl focus:border-[#00C853] transition-colors h-11 font-medium" />
+                    <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto items-center">
+                      
+                      {/* 🟢 BOTÕES DE SELEÇÃO MÚLTIPLA INJETADOS AQUI */}
+                      {isSelectionMode ? (
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                          <button onClick={() => { setIsSelectionMode(false); setSelectedForDelete([]); }} className="text-sm font-bold text-gray-500 hover:text-black px-4 py-2 transition-colors">
+                            Cancelar
+                          </button>
+                          <button 
+                            onClick={() => setIsBulkDeleteConfirmOpen(true)} 
+                            disabled={selectedForDelete.length === 0} 
+                            className="text-sm font-bold bg-red-500 text-white px-5 py-2 rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors w-full sm:w-auto shadow-sm"
+                          >
+                            Excluir ({selectedForDelete.length})
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setIsSelectionMode(true)} className="text-sm font-bold bg-slate-100 text-slate-700 px-5 py-2 rounded-lg hover:bg-slate-200 border-2 border-slate-200 transition-colors w-full sm:w-auto">
+                          Selecionar Vários
+                        </button>
+                      )}
+
+                      <div className="relative w-full sm:w-80">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <Input placeholder="Buscar por nome..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                          className="pl-9 border-2 border-gray-200 rounded-xl focus:border-[#00C853] transition-colors h-11 font-medium" />
+                      </div>
                     </div>
                   </div>
                   {filteredParticipants.length === 0 ? (
@@ -403,7 +445,22 @@ export default function Home() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
                       {filteredParticipants.map((participant) => (
-                        <ParticipantCard key={participant.id} participant={participant as any}
+                        <ParticipantCard 
+                          key={participant.id} 
+                          participant={participant as any}
+                          allTransactions={allTransactions}
+                          
+                          // 🟢 INJEÇÃO DAS PROPRIEDADES DE SELEÇÃO
+                          selectionMode={isSelectionMode}
+                          isSelected={selectedForDelete.includes(participant.id)}
+                          onToggleSelection={() => {
+                            setSelectedForDelete(prev => 
+                              prev.includes(participant.id) 
+                                ? prev.filter(id => id !== participant.id) 
+                                : [...prev, participant.id]
+                            );
+                          }}
+
                           onPayment={() => { setSelectedParticipantId(participant.id); setIsPaymentOpen(true); }}
                           onAmortize={() => { setSelectedParticipantId(participant.id); setAmortizeAmount(''); setIsAmortizeOpen(true); }}
                           onAddLoan={() => { setSelectedParticipantId(participant.id); setLoanAmount(''); setIsAddLoanOpen(true); }}
@@ -721,6 +778,19 @@ export default function Home() {
         confirmText="Deletar" cancelText="Cancelar" isDangerous={true}
         isLoading={deleteParticipantMutation.isPending}
         onConfirm={handleDeleteParticipant} onCancel={() => setIsDeleteConfirmOpen(false)} />
+
+      {/* 🟢 NOVO MODAL: Apagar Vários Participantes */}
+      <ConfirmationModal 
+        isOpen={isBulkDeleteConfirmOpen} 
+        title="Excluir Múltiplos Participantes"
+        description={`Tem certeza que deseja excluir os ${selectedForDelete.length} participantes selecionados? Esta ação apagará todo o histórico deles e é irreversível.`}
+        confirmText="Excluir Todos" 
+        cancelText="Cancelar" 
+        isDangerous={true}
+        isLoading={deleteMultipleParticipantsMutation.isPending}
+        onConfirm={() => deleteMultipleParticipantsMutation.mutate({ participantIds: selectedForDelete })} 
+        onCancel={() => setIsBulkDeleteConfirmOpen(false)} 
+      />
 
       <ConfirmationModal isOpen={isResetConfirmOpen} title="Resetar Mês"
         description="Todos os pagamentos do mês atual serão zerados. Irreversível."

@@ -37,6 +37,10 @@ export interface AppParticipant {
 
 interface ParticipantCardProps {
   participant: AppParticipant;
+  allTransactions?: any[]; 
+  selectionMode?: boolean; 
+  isSelected?: boolean;    
+  onToggleSelection?: () => void; 
   onPayment?: () => void;
   onAmortize?: () => void;
   onAddLoan?: () => void;
@@ -60,7 +64,8 @@ const MONTHS = [
 ];
 
 export function ParticipantCard({
-  participant, onPayment, onAmortize, onAddLoan, onViewHistory,
+  participant, allTransactions, selectionMode, isSelected, onToggleSelection,
+  onPayment, onAmortize, onAddLoan, onViewHistory,
   onRegisterPayment, onEditLoan, onEditDebt, onEditName, onEditEmail,
   onDelete, onViewChart
 }: ParticipantCardProps) {
@@ -113,6 +118,7 @@ export function ParticipantCard({
   };
 
   const handleMonthClick = (monthValue: string, year: number, label: string) => {
+    if (selectionMode) return; // 🟢 FIX: Bloqueia clique no mês se estiver apagando
     const paidRecord = getPaidRecord(monthValue, year);
     if (paidRecord) {
       setMonthToUnmark({ id: paidRecord.id, monthValue, year, label });
@@ -140,7 +146,7 @@ export function ParticipantCard({
       year: monthToPay.year,
       paymentDate: paymentDate,
       quotaMultiplier,
-    });
+    } as any);
   };
 
   const statusColors = {
@@ -154,9 +160,18 @@ export function ParticipantCard({
   const userRole = participant.role || 'member';
   const baseMonthlyTotal = calculateMonthlyTotal(participant.currentDebt, userRole);
   
+  const pTx = allTransactions?.filter((t: any) => t.participantId === participant.id) || [];
+  const totalCotasPagas = pTx.reduce((acc, t) => {
+    if (t.type === 'payment' && t.description) {
+      const match = t.description.match(/Cota.*?R\$ (\d+\.\d{2})/);
+      if (match) return acc + parseFloat(match[1]);
+    }
+    return acc;
+  }, 0);
+
   const totalAmortizado = Math.max(0, parseFloat(participant.totalLoan as string || '0') - parseFloat(participant.currentDebt as string || '0'));
-  const paidMonthsCount = monthlyPayments.filter((p: MonthlyPaymentRecord) => p.paid === true || p.paid === 1).length;
-  const totalPagoAproximado = totalAmortizado + (paidMonthsCount * (userRole === 'external' ? 0 : 200));
+  
+  const totalPagoAproximado = totalAmortizado + totalCotasPagas;
   
   let modalPenalty = 0;
   if (monthToPay && paymentDate) {
@@ -165,11 +180,19 @@ export function ParticipantCard({
       modalPenalty = calcLatePaymentFee(userRole).totalLateCharge.toNumber();
     }
   }
-  // Juros fixos sobre dívida; cota multiplica pelo quotaMultiplier
-  const modalTotal = calculateMonthlyTotal(participant.currentDebt, userRole, quotaMultiplier) + modalPenalty;
+  
+  const modalTotal = calculateMonthlyTotal(participant.currentDebt, userRole, quotaMultiplier as any) + modalPenalty;
 
   return (
-    <div className="bg-white border-2 border-slate-200 shadow-sm rounded-xl p-5 flex flex-col gap-5 hover:border-slate-300 transition-colors relative">
+    <div 
+      className={cn(
+        "border-2 shadow-sm rounded-xl p-5 flex flex-col gap-5 transition-all relative",
+        selectionMode 
+          ? (isSelected ? "border-red-500 bg-red-50/50 cursor-pointer" : "bg-white border-slate-300 hover:border-red-300 cursor-pointer") 
+          : "bg-white border-slate-200 hover:border-slate-300"
+      )}
+      onClick={() => { if (selectionMode && onToggleSelection) onToggleSelection(); }}
+    >
       
       {userRole === 'external' && (
         <span className="absolute -top-3 -right-2 bg-blue-100 text-blue-700 border-2 border-blue-200 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm">
@@ -177,8 +200,20 @@ export function ParticipantCard({
         </span>
       )}
 
-      <div className="flex justify-between items-start gap-3 cursor-pointer group mt-1" onClick={() => setIsExpanded(!isExpanded)}>
+      <div className="flex justify-between items-start gap-3 group mt-1" 
+           onClick={(e) => { if (selectionMode) { e.preventDefault(); return; } setIsExpanded(!isExpanded); }}
+           style={{ cursor: selectionMode ? 'pointer' : 'pointer' }}>
+        
         <div className="flex items-center gap-3 flex-1 min-w-0">
+          
+          {selectionMode && (
+            <div className="shrink-0 flex items-center justify-center">
+              <div className={cn("w-6 h-6 rounded border-2 flex items-center justify-center transition-colors", isSelected ? "bg-red-500 border-red-500" : "bg-white border-slate-300")}>
+                {isSelected && <Check className="w-4 h-4 text-white stroke-3" />}
+              </div>
+            </div>
+          )}
+
           <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 border-2 border-slate-200">
             <User className="w-6 h-6 text-black" />
           </div>
@@ -190,11 +225,13 @@ export function ParticipantCard({
           </div>
         </div>
         <Badge variant="outline" className={cn("rounded-md font-black uppercase tracking-wider px-2.5 py-1 border-2 shrink-0 text-[10px]", statusColors[status])}>
-          <StatusIcon className="w-3.5 h-3.5 mr-1.5 stroke-[3]" /> {statusText[status]}
+          <StatusIcon className="w-3.5 h-3.5 mr-1.5 stroke-3" /> {statusText[status]}
         </Badge>
       </div>
 
-      <div className="bg-slate-50 border-2 border-slate-200 rounded-lg p-4 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => setIsExpanded(!isExpanded)}>
+      <div className="bg-slate-50 border-2 border-slate-200 rounded-lg p-4 transition-colors" 
+           onClick={(e) => { if (selectionMode) { e.preventDefault(); return; } setIsExpanded(!isExpanded); }}
+           style={{ cursor: selectionMode ? 'pointer' : 'pointer' }}>
         <div className="flex justify-between items-center mb-1">
           <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">Saldo Devedor</span>
           <span className="text-2xl font-black text-black tracking-tighter">{formatCurrency(participant.currentDebt)}</span>
@@ -222,7 +259,7 @@ export function ParticipantCard({
         )}
       </div>
 
-      {isExpanded && (
+      {isExpanded && !selectionMode && (
         <div className="space-y-6 pt-2 border-t-2 border-slate-100 animate-in fade-in duration-200">
           
           <div className="grid grid-cols-2 gap-4">
@@ -240,9 +277,9 @@ export function ParticipantCard({
             <div className="flex items-center justify-between">
               <span className="text-sm font-black text-black uppercase tracking-tight">Mensalidades</span>
               <div className="flex items-center gap-1 bg-slate-100 border-2 border-slate-200 rounded-md p-0.5">
-                <button onClick={(e) => { e.stopPropagation(); setSelectedYear(selectedYear - 1); }} disabled={selectedYear <= minYear} className="h-6 w-6 flex items-center justify-center rounded text-black hover:bg-white disabled:opacity-30"><ChevronLeft className="w-4 h-4 stroke-[3]" /></button>
+                <button onClick={(e) => { e.stopPropagation(); setSelectedYear(selectedYear - 1); }} disabled={selectedYear <= minYear} className="h-6 w-6 flex items-center justify-center rounded text-black hover:bg-white disabled:opacity-30"><ChevronLeft className="w-4 h-4 stroke-3" /></button>
                 <span className="text-xs font-black w-10 text-center text-black">{selectedYear}</span>
-                <button onClick={(e) => { e.stopPropagation(); setSelectedYear(selectedYear + 1); }} disabled={selectedYear >= maxYear} className="h-6 w-6 flex items-center justify-center rounded text-black hover:bg-white disabled:opacity-30"><ChevronRight className="w-4 h-4 stroke-[3]" /></button>
+                <button onClick={(e) => { e.stopPropagation(); setSelectedYear(selectedYear + 1); }} disabled={selectedYear >= maxYear} className="h-6 w-6 flex items-center justify-center rounded text-black hover:bg-white disabled:opacity-30"><ChevronRight className="w-4 h-4 stroke-3" /></button>
               </div>
             </div>
             
@@ -260,7 +297,7 @@ export function ParticipantCard({
                         : "bg-white border-slate-300 text-gray-500 hover:border-black hover:text-black"
                     )}
                   >
-                    {isPaid ? <Check className="w-5 h-5 stroke-[3]" /> : month.label}
+                    {isPaid ? <Check className="w-5 h-5 stroke-3" /> : month.label}
                   </button>
                 );
               })}
@@ -316,7 +353,7 @@ export function ParticipantCard({
 
       {/* MODAL DE PAGAR */}
       <Dialog open={isPayMonthOpen} onOpenChange={setIsPayMonthOpen}>
-        <DialogContent className="bg-white rounded-xl shadow-2xl sm:max-w-[400px] p-6 border-2 border-black">
+        <DialogContent className="bg-white rounded-xl shadow-2xl sm:max-w-100 p-6 border-2 border-black">
           <DialogHeader className="mb-4">
             <DialogTitle className="text-xl font-black text-black uppercase tracking-tight flex items-center gap-2">
               <Wallet className="w-6 h-6 text-emerald-600 stroke-[2.5]" /> CONFIRMAR PAGAMENTO
@@ -384,13 +421,13 @@ export function ParticipantCard({
                   
                   {userRole === 'external' ? (
                     <span className="text-xs font-bold text-gray-600 uppercase tracking-tight">
-                      Apenas Juros: {formatCurrency(calculateMonthlyInterest(participant.currentDebt, userRole))}
+                      Apenas Juros: {formatCurrency(calculateMonthlyInterest(participant.currentDebt))}
                     </span>
                   ) : (
                     <span className="text-xs font-bold text-gray-600 uppercase tracking-tight">
                       {quotaMultiplier > 1
-                        ? `${quotaMultiplier}x R$ 200,00 = R$ ${(200 * quotaMultiplier).toFixed(2).replace('.', ',')} + ${formatCurrency(calculateMonthlyInterest(participant.currentDebt, userRole))} (juros)`
-                        : `R$ 200,00 + ${formatCurrency(calculateMonthlyInterest(participant.currentDebt, userRole))} (juros)`
+                        ? `${quotaMultiplier}x R$ 200,00 = R$ ${(200 * quotaMultiplier).toFixed(2).replace('.', ',')} + ${formatCurrency(calculateMonthlyInterest(participant.currentDebt))} (juros)`
+                        : `R$ 200,00 + ${formatCurrency(calculateMonthlyInterest(participant.currentDebt))} (juros)`
                       }
                     </span>
                   )}

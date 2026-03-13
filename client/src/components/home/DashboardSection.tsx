@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { CycleClosingModal } from '../CycleClosingModal';
 import { Award } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
+
 // ── Tipos ────────────────────────────────────────────────────
 type NextMonthEstimate = {
   nextMonth: string;
@@ -310,8 +311,6 @@ function generatePDF(participants: Participant[], allTransactions: Transaction[]
 
 // ── Componente Principal ─────────────────────────────────────
 export function DashboardSection({
-  totalFees,
-  totalInterest,
   totalDebts,
   nextMonthEstimate,
   isEstimateExpanded,
@@ -332,6 +331,25 @@ export function DashboardSection({
   const [isScenarioOpen, setIsScenarioOpen] = useState(false);
   const [scenarioInterestRate, setScenarioInterestRate] = useState('10');
   const [scenarioAdherence, setScenarioAdherence] = useState('100');
+
+  // 🟢 1. MATEMÁTICA DE PRECISÃO (Lendo os valores REAIS extraídos do Histórico)
+  const realTotalFees = allTransactions.reduce((acc, t) => {
+    if (t.type === 'payment' && t.description) {
+      const match = t.description.match(/Cota.*?R\$ (\d+\.\d{2})/);
+      if (match) return acc + parseFloat(match[1]);
+    }
+    return acc;
+  }, 0);
+
+  const realTotalInterest = allTransactions.reduce((acc, t) => {
+    if (t.type === 'payment' && t.description) {
+      const match = t.description.match(/Juros R\$ (\d+\.\d{2})/);
+      if (match) return acc + parseFloat(match[1]);
+    }
+    return acc;
+  }, 0);
+
+
   // ─── MATEMÁTICA DO "DINHEIRO PARADO" (LIQUIDEZ) ──────────────
   // 1. Tudo o que entrou na conta (Mensalidades pagas + Amortizações)
   const totalEntradas = allTransactions
@@ -380,7 +398,7 @@ export function DashboardSection({
       />
 
       {/* ── O COFRE GIGANTE (CAIXA DISPONÍVEL) ── */}
-      <div className="bg-gray-900 rounded-2xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden border-4 border-gray-800">
+      <div className="bg-gray-900 rounded-[2rem] p-6 md:p-8 text-white shadow-xl relative overflow-hidden border-4 border-gray-800">
         <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
           <Wallet className="w-48 h-48" />
         </div>
@@ -419,10 +437,11 @@ export function DashboardSection({
       {/* ── Stat Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {[
-          { label: 'Cotas Arrecadadas', value: formatCurrency(totalFees), icon: Banknote, color: '#00C853', iconBg: '#dcfce7' },
-          { label: 'Juros Arrecadados', value: formatCurrency(totalInterest), icon: Percent, color: '#F59E0B', iconBg: '#fef3c7' },
+          // 🟢 2. CARTÕES AGORA MOSTRAM OS VALORES REAIS CORRIGIDOS
+          { label: 'Cotas Arrecadadas', value: formatCurrency(realTotalFees), icon: Banknote, color: '#00C853', iconBg: '#dcfce7' },
+          { label: 'Juros Arrecadados', value: formatCurrency(realTotalInterest), icon: Percent, color: '#F59E0B', iconBg: '#fef3c7' },
           { label: 'Total em Dívidas', value: formatCurrency(totalDebts), icon: TrendingDown, color: '#EF4444', iconBg: '#fee2e2' },
-          { label: 'Total Arrecadado', value: formatCurrency(totalFees + totalInterest), icon: Activity, color: '#8B5CF6', iconBg: '#ede9fe' },
+          { label: 'Total Arrecadado', value: formatCurrency(realTotalFees + realTotalInterest), icon: Activity, color: '#8B5CF6', iconBg: '#ede9fe' },
           { label: 'Inadimplência', value: String(inadSeg.total), icon: Clock, color: '#EF4444', iconBg: '#fee2e2' },
         ].map((stat) => {
           const Icon = stat.icon;
@@ -623,7 +642,8 @@ export function DashboardSection({
             </div>
           </div>
           <div className="bg-gray-50 rounded-lg p-4 text-sm">
-            <p><strong>Cenário atual (dashboard):</strong> {formatCurrency(totalFees + totalInterest)}</p>
+            {/* 🟢 3. O SIMULADOR AGORA COMPARA COM O VALOR REAL */}
+            <p><strong>Cenário atual (dashboard):</strong> {formatCurrency(realTotalFees + realTotalInterest)}</p>
             <p><strong>Simulado:</strong> {formatCurrency(parseFloat(scenarioResult?.estimatedTotal || '0'))}</p>
             <p><strong>Cotas simuladas:</strong> {formatCurrency(parseFloat(scenarioResult?.estimatedQuotas || '0'))}</p>
             <p><strong>Juros simulados:</strong> {formatCurrency(parseFloat(scenarioResult?.estimatedInterest || '0'))}</p>
@@ -634,7 +654,7 @@ export function DashboardSection({
 
       {/* ── Modal Snapshot ── */}
       <MonthSnapshotModal isOpen={isSnapshotOpen} onClose={() => setIsSnapshotOpen(false)} />
-{/* ── Modal de Fechamento de Ciclo (Dividendos) ── */}
+      {/* ── Modal de Fechamento de Ciclo (Dividendos) ── */}
       <CycleClosingModal 
         isOpen={isClosingOpen} 
         onClose={() => setIsClosingOpen(false)} 
