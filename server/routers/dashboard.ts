@@ -107,7 +107,7 @@ export const dashboardProcedures = {
         role: participants.role,
       })
       .from(participants)
-      .where(eq(participants.caixinhaId, caixinha.id));
+      .where(and(eq(participants.caixinhaId, caixinha.id), eq(participants.isActive, true)));
 
     const estimate = calcNextMonthEstimate(activeParticipants);
     const now = new Date();

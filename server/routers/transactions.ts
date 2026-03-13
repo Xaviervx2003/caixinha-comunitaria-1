@@ -128,22 +128,13 @@ export const transactionsProcedures = {
         const late = isLatePayment(input.month, paymentDate, caixinha.paymentDueDay ?? 5);
         const currentDebt = new Decimal(p.currentDebt);
         
-        // 🟢 LÊ A ETIQUETA DO BANCO DE DADOS
         const role = (p.role || 'member') as 'member' | 'external';
-        
-        // 🟢 INJETA A ETIQUETA NA MATEMÁTICA E TRANSFORMA EM LET PARA PODER MODIFICAR
-        let calc = late
-          ? calcLateMonthlyPayment(currentDebt, role)
-          : { ...calcMonthlyPayment(currentDebt, role), isLate: false, lateFee: new Decimal(0), lateInterest: new Decimal(0), totalLateCharge: new Decimal(0) };
-
-        // 🟢 2. A MATEMÁTICA DO BACKEND AGORA MULTIPLICA A COTA
         const multiplier = input.quotaMultiplier ?? 1;
-        if (multiplier > 1 && role !== 'external') {
-          const baseQuota = new Decimal(calc.quota as any);
-          const extraQuota = baseQuota.mul(multiplier - 1);
-          calc.total = new Decimal(calc.total as any).add(extraQuota) as any; // Soma as cotas extras no total
-          calc.quota = baseQuota.mul(multiplier) as any; // Atualiza a cota para fins de extrato
-        }
+        
+        // Passa o multiplier direto para as funções de cálculo (já suportam o 3º parâmetro)
+        const calc = late
+          ? calcLateMonthlyPayment(currentDebt, role, multiplier)
+          : { ...calcMonthlyPayment(currentDebt, role, multiplier), isLate: false, lateFee: new Decimal(0), lateInterest: new Decimal(0), totalLateCharge: new Decimal(0) };
 
         const paidAt = paymentDate;
 
@@ -162,10 +153,9 @@ export const transactionsProcedures = {
           });
         }
 
-        // 🟢 3. DESCRIÇÃO INTELIGENTE (Mostra se for 2x, 3x, etc no Extrato)
         const descBase = role === 'external' 
-          ? `Juros R$ ${new Decimal(calc.interest as any).toFixed(2)}` 
-          : `Cota ${multiplier > 1 ? `(${multiplier}x) ` : ''}R$ ${new Decimal(calc.quota as any).toFixed(2)} + Juros R$ ${new Decimal(calc.interest as any).toFixed(2)}`;
+          ? `Juros R$ ${calc.interest.toFixed(2)}` 
+          : `Cota ${multiplier > 1 ? `(${multiplier}x) ` : ''}R$ ${calc.quota.toFixed(2)} + Juros R$ ${calc.interest.toFixed(2)}`;
           
         const description = late
           ? `${descBase} + Multa R$ ${calc.lateFee?.toFixed(2)} + Mora R$ ${calc.lateInterest?.toFixed(2)} (ATRASO)`
@@ -175,7 +165,7 @@ export const transactionsProcedures = {
           await tx.insert(transactions).values({
             participantId: input.participantId,
             type: "payment",
-            amount: new Decimal(calc.total as any).toFixed(2),
+            amount: calc.total.toFixed(2),
             balanceBefore: currentDebt.toFixed(2),
             balanceAfter: currentDebt.toFixed(2), // Amortização muda a dívida, pagamento normal não
             month: input.month,
@@ -194,11 +184,11 @@ export const transactionsProcedures = {
           action: "payment_marked",
           month: input.month,
           year: input.year,
-          amount: new Decimal(calc.total as any).toFixed(2),
+          amount: calc.total.toFixed(2),
           description,
         });
 
-        return { success: true, isLate: late, total: new Decimal(calc.total as any).toFixed(2) };
+        return { success: true, isLate: late, total: calc.total.toFixed(2) };
       });
     }),
 
@@ -232,7 +222,7 @@ export const transactionsProcedures = {
         throw new TRPCError({ code: "CONFLICT", message: "Pagamento já está desmarcado." });
       }
 
-      await tx.update(monthlyPayments).set({ paid: false }).where(eq(monthlyPayments.id, input.paymentId));
+      await tx.update(monthlyPayments).set({ paid: false, paidLate: false, paidAt: null }).where(eq(monthlyPayments.id, input.paymentId));
       const [originalTx] = await tx.select().from(transactions).where(and(
         eq(transactions.participantId, input.participantId),
         eq(transactions.type, "payment"),
@@ -286,7 +276,7 @@ export const transactionsProcedures = {
       if (payments.length === 0) return { success: true, reset: 0 };
 
       for (const { mp, participant } of payments) {
-        await tx.update(monthlyPayments).set({ paid: false }).where(eq(monthlyPayments.id, mp.id));
+        await tx.update(monthlyPayments).set({ paid: false, paidLate: false, paidAt: null }).where(eq(monthlyPayments.id, mp.id));
         const [originalTx] = await tx.select().from(transactions).where(and(
           eq(transactions.participantId, mp.participantId),
           eq(transactions.type, "payment"),
