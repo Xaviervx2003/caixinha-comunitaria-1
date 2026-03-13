@@ -13,9 +13,6 @@ export const CAIXINHA_CONFIG = {
   MAX_QUOTA_MULTIPLIER: 12, // máximo de cotas por pagamento
 } as const;
  
-export const MONTHLY_FEE = 200;
-export const INTEREST_RATE = 0.10;
- 
 // ─────────────────────────────────────────────────────
 // 2. LÓGICA CORE
 // ─────────────────────────────────────────────────────

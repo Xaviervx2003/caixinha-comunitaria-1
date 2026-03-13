@@ -20,7 +20,7 @@ import { ImportedParticipant, ImportedTransaction } from '@/lib/csv-import';
 import { DebtEvolutionChart } from '@/components/DebtEvolutionChart';
 import { DebtorsList } from '@/components/DebtorsList';
 import { formatCurrency } from '@/lib/format-currency';
-import { calculateCollectionsFromTransactions } from '@shared/finance';
+import { calculateCollectionsFromTransactions, calculateMonthlyInterest } from '@shared/finance';
 import { HomeSidebar } from '@/components/home/HomeSidebar';
 import { HomeTopbar } from '@/components/home/HomeTopbar';
 import { DashboardSection } from '@/components/home/DashboardSection';
@@ -486,7 +486,7 @@ export default function Home() {
                 id: p.id, name: p.name,
                 totalLoan: parseFloat(p.totalLoan.toString()),
                 currentDebt: parseFloat(p.currentDebt.toString()),
-                monthlyInterest: parseFloat(p.currentDebt.toString()) * 0.1,
+                monthlyInterest: calculateMonthlyInterest(p.currentDebt, (p.role as 'member' | 'external') || 'member'),
                 role: p.role as 'member' | 'external',
               }))} />
             </div>
