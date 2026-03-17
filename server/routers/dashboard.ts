@@ -74,7 +74,7 @@ export const dashboardProcedures = {
       ));
 
     const paidIds = new Set(paidRows.map((row) => row.participantId));
-    const activeParticipants = allParticipants.filter((p) => (p.isActive as any) === true || (p.isActive as any) === 1);
+    const activeParticipants = allParticipants.filter((p) => p.isActive === true);
     const activeMembers = activeParticipants.filter((p) => p.role !== 'external');
     const activeExternalWithDebt = activeParticipants.filter((p) => p.role === 'external' && new Decimal(p.currentDebt).gt(0));
 
@@ -124,6 +124,7 @@ export const dashboardProcedures = {
       dueDate: dueDate.toISOString().split("T")[0],
       dueDay,
       startDate: caixinha.startDate ?? null,
+      endDate: caixinha.endDate ?? null,
       caixinhaName: caixinha.name,
     };
   }),
@@ -132,6 +133,7 @@ export const dashboardProcedures = {
     .input(z.object({
       name: z.string().min(1).max(255).optional(),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       paymentDueDay: z.number().int().min(1).max(28).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -140,6 +142,7 @@ export const dashboardProcedures = {
       const updateValues: Record<string, any> = {};
       if (input.name !== undefined) updateValues.name = input.name;
       if (input.startDate !== undefined) updateValues.startDate = new Date(input.startDate);
+      if (input.endDate !== undefined) updateValues.endDate = new Date(input.endDate);
       if (input.paymentDueDay !== undefined) updateValues.paymentDueDay = input.paymentDueDay;
 
       await db.update(caixinhaMetadata).set(updateValues).where(eq(caixinhaMetadata.id, caixinha.id));

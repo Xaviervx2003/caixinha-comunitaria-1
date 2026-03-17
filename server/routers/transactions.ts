@@ -98,6 +98,20 @@ export const transactionsProcedures = {
       const db = await getDb();
       const caixinha = await getCaixinhaOrThrow(db, ctx.user.id);
 
+      const paymentValue = parseInt(input.month.replace('-', ''));
+      if (caixinha.startDate) {
+        const startValue = parseInt(`${caixinha.startDate.getFullYear()}${String(caixinha.startDate.getMonth() + 1).padStart(2, '0')}`);
+        if (paymentValue < startValue) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `O mês de pagamento (${input.month}) é anterior ao início configurado para esta caixinha.` });
+        }
+      }
+      if (caixinha.endDate) {
+        const endValue = parseInt(`${caixinha.endDate.getFullYear()}${String(caixinha.endDate.getMonth() + 1).padStart(2, '0')}`);
+        if (paymentValue > endValue) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `O mês de pagamento (${input.month}) é posterior ao fim configurado para esta caixinha.` });
+        }
+      }
+
       if (input.idempotencyKey) {
         const [existing] = await db.select().from(transactions)
           .innerJoin(participants, eq(participants.id, transactions.participantId))

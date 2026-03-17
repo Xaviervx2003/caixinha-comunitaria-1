@@ -14,7 +14,8 @@ import {
   calculateMonthlyInterest, 
   calculateMonthlyTotal, 
   isLatePayment, 
-  calcLatePaymentFee 
+  calcLatePaymentFee,
+  CAIXINHA_CONFIG
 } from '@/lib/finance';
 
 export interface MonthlyPaymentRecord {
@@ -426,8 +427,8 @@ export function ParticipantCard({
                   ) : (
                     <span className="text-xs font-bold text-gray-600 uppercase tracking-tight">
                       {quotaMultiplier > 1
-                        ? `${quotaMultiplier}x R$ 200,00 = R$ ${(200 * quotaMultiplier).toFixed(2).replace('.', ',')} + ${formatCurrency(calculateMonthlyInterest(participant.currentDebt))} (juros)`
-                        : `R$ 200,00 + ${formatCurrency(calculateMonthlyInterest(participant.currentDebt))} (juros)`
+                        ? `${quotaMultiplier}x R$ ${CAIXINHA_CONFIG.MONTHLY_QUOTA.toNumber()},00 = R$ ${(CAIXINHA_CONFIG.MONTHLY_QUOTA.toNumber() * quotaMultiplier).toFixed(2).replace('.', ',')} + ${formatCurrency(calculateMonthlyInterest(participant.currentDebt))} (juros)`
+                        : `R$ ${CAIXINHA_CONFIG.MONTHLY_QUOTA.toNumber()},00 + ${formatCurrency(calculateMonthlyInterest(participant.currentDebt))} (juros)`
                       }
                     </span>
                   )}

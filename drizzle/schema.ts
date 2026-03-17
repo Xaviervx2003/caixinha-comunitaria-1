@@ -40,8 +40,9 @@ export const caixinhaMetadata = mysqlTable("caixinhaMetadata", {
   description: text("description"),
   isPublic: boolean("isPublic").default(false).notNull(),
 
-  // ✅ NOVO: data de início da caixinha
+  // ✅ data de início e fim da caixinha
   startDate: date("startDate"),
+  endDate: date("endDate"),
 
   // ✅ NOVO: dia limite para pagamento sem juros de atraso (padrão: 5)
   paymentDueDay: int("paymentDueDay").default(5).notNull(),

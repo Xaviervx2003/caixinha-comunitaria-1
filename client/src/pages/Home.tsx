@@ -152,6 +152,10 @@ export default function Home() {
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [settingsDueDay, setSettingsDueDay] = useState('5');
   const [settingsName, setSettingsName] = useState('');
+  const [settingsStartMonth, setSettingsStartMonth] = useState('12');
+  const [settingsStartYear, setSettingsStartYear] = useState('2025');
+  const [settingsEndMonth, setSettingsEndMonth] = useState('10');
+  const [settingsEndYear, setSettingsEndYear] = useState('2026');
 
   const selectedParticipant = participants.find((p) => p.id === selectedParticipantId);
   const currentYear = new Date().getFullYear();
@@ -267,7 +271,9 @@ export default function Home() {
   const handleSaveSettings = async () => {
     const day = parseInt(settingsDueDay);
     if (isNaN(day) || day < 1 || day > 28) { showErrorToast('Dia inválido (1-28)'); return; }
-    try { await updateSettingsMutation.mutateAsync({ paymentDueDay: day, ...(settingsName.trim() ? { name: settingsName.trim() } : {}) }); }
+    const startDate = `${settingsStartYear}-${settingsStartMonth}-01`;
+    const endDate = `${settingsEndYear}-${settingsEndMonth}-01`;
+    try { await updateSettingsMutation.mutateAsync({ paymentDueDay: day, startDate, endDate, ...(settingsName.trim() ? { name: settingsName.trim() } : {}) }); }
     catch { showErrorToast('Erro ao salvar configurações'); }
   };
 
@@ -578,6 +584,41 @@ export default function Home() {
                     <input type="number" value={settingsDueDay} onChange={(e) => setSettingsDueDay(e.target.value)} min={1} max={28}
                       className="w-full border-2 border-gray-200 rounded-lg px-4 py-3 text-sm font-medium focus:outline-none focus:border-[#00C853] transition-colors" />
                     <p className="text-xs text-gray-400 mt-1.5">Dia do mês seguinte em que o pagamento vence. Padrão: 5.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Período da Caixinha</label>
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Início</label>
+                          <div className="flex gap-2">
+                            <select value={settingsStartMonth} onChange={(e) => setSettingsStartMonth(e.target.value)}
+                              className="flex-1 border-2 border-gray-200 rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-[#00C853] transition-colors bg-white">
+                              {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                            </select>
+                            <select value={settingsStartYear} onChange={(e) => setSettingsStartYear(e.target.value)}
+                              className="w-24 border-2 border-gray-200 rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-[#00C853] transition-colors bg-white">
+                              {Array.from({ length: 5 }, (_, i) => currentYear - 2 + i).map(y => <option key={y} value={y}>{y}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <span className="text-gray-400 font-bold mt-5">→</span>
+                        <div className="flex-1">
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fim</label>
+                          <div className="flex gap-2">
+                            <select value={settingsEndMonth} onChange={(e) => setSettingsEndMonth(e.target.value)}
+                              className="flex-1 border-2 border-gray-200 rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-[#00C853] transition-colors bg-white">
+                              {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                            </select>
+                            <select value={settingsEndYear} onChange={(e) => setSettingsEndYear(e.target.value)}
+                              className="w-24 border-2 border-gray-200 rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-[#00C853] transition-colors bg-white">
+                              {Array.from({ length: 5 }, (_, i) => currentYear - 2 + i).map(y => <option key={y} value={y}>{y}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-2">Defina o mês de início e o mês final do ciclo da caixinha.</p>
+                    </div>
                   </div>
                   <div className="pt-2">
                     <button onClick={handleSaveSettings} disabled={updateSettingsMutation.isPending}

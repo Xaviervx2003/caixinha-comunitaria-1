@@ -1,0 +1,1 @@
+ALTER TABLE `caixinhaMetadata` ADD `endDate` date;
