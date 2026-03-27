@@ -1,6 +1,6 @@
 // server/routers/participants.ts
 import { protectedProcedure } from "../_core/trpc";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { getDb } from "../db";
 import { participants, monthlyPayments, auditLog, transactions } from "../../drizzle/schema";
 import { getCaixinhaOrThrow, getParticipantOrThrow, participantIdSchema } from "./helpers";
@@ -93,7 +93,7 @@ export const participantsProcedures = {
       });
     }),
 
-  // 🟢 NOVA ROTA: Apagar Múltiplos Participantes de uma vez
+  // 🟢 NOVA ROTA: Apagar Múltiplos Participantes de uma vez (batch otimizado)
   deleteMultipleParticipants: protectedProcedure
     .input(z.object({ participantIds: z.array(z.number().int().positive()) }))
     .mutation(async ({ input, ctx }) => {
@@ -101,15 +101,21 @@ export const participantsProcedures = {
       const caixinha = await getCaixinhaOrThrow(db, ctx.user.id);
       
       return db.transaction(async (tx) => {
-        for (const id of input.participantIds) {
-          const [p] = await tx.select().from(participants).where(and(eq(participants.id, id), eq(participants.caixinhaId, caixinha.id))).limit(1);
-          if (p) {
-            await tx.delete(auditLog).where(eq(auditLog.participantId, id));
-            await tx.delete(monthlyPayments).where(eq(monthlyPayments.participantId, id));
-            await tx.delete(transactions).where(eq(transactions.participantId, id));
-            await tx.delete(participants).where(eq(participants.id, id));
-          }
-        }
+        // Valida quais IDs realmente pertencem a esta caixinha
+        const valid = await tx.select({ id: participants.id })
+          .from(participants)
+          .where(and(
+            inArray(participants.id, input.participantIds),
+            eq(participants.caixinhaId, caixinha.id)
+          ));
+        const validIds = valid.map(p => p.id);
+        if (validIds.length === 0) return { success: true };
+
+        // Batch deletes — 4 queries ao invés de N×4
+        await tx.delete(auditLog).where(inArray(auditLog.participantId, validIds));
+        await tx.delete(monthlyPayments).where(inArray(monthlyPayments.participantId, validIds));
+        await tx.delete(transactions).where(inArray(transactions.participantId, validIds));
+        await tx.delete(participants).where(inArray(participants.id, validIds));
         return { success: true };
       });
     }),

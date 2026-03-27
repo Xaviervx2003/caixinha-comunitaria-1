@@ -28,35 +28,43 @@ export const dashboardProcedures = {
     const db = await getDb();
     const caixinha = await getCaixinhaOrThrow(db, ctx.user.id);
 
-    const allTx = await db
-      .select({ tx: transactions, participantRole: participants.role })
+    const [saldo] = await db
+      .select({
+        caixaLivre: sql<number>`
+          COALESCE(SUM(
+            CASE
+              WHEN ${transactions.type} IN ('payment', 'amortization') THEN ${transactions.amount}
+              WHEN ${transactions.type} IN ('loan', 'reversal') THEN -${transactions.amount}
+              ELSE 0
+            END
+          ), 0)`
+      })
       .from(transactions)
       .innerJoin(participants, eq(participants.id, transactions.participantId))
       .where(eq(participants.caixinhaId, caixinha.id));
 
-    let caixaLivre = new Decimal(0);
+    const caixaLivre = new Decimal(saldo.caixaLivre);
 
-    for (const row of allTx) {
-      const tx = row.tx;
-      const amount = new Decimal(tx.amount).abs();
-      if (tx.type === 'payment' || tx.type === 'amortization') caixaLivre = caixaLivre.add(amount);
-      else if (tx.type === 'loan' || tx.type === 'reversal') caixaLivre = caixaLivre.sub(amount);
-    }
+    const incomeTx = await db
+      .select({ participantId: transactions.participantId, type: transactions.type, amount: transactions.amount, participantRole: participants.role })
+      .from(transactions)
+      .innerJoin(participants, eq(participants.id, transactions.participantId))
+      .where(and(eq(participants.caixinhaId, caixinha.id), inArray(transactions.type, ['payment', 'reversal'])));
 
     const participantRoles = Object.fromEntries(
-      allTx.map((row) => [row.tx.participantId, row.participantRole ?? 'member'])
+      incomeTx.map((row) => [row.participantId, row.participantRole ?? 'member'])
     ) as Record<number, 'member' | 'external'>;
 
-    const totals = calculateCollectionsFromTransactions(
-      allTx.map((row) => ({ participantId: row.tx.participantId, type: row.tx.type, amount: row.tx.amount })),
-      participantRoles,
-    );
-
+    const totals = calculateCollectionsFromTransactions(incomeTx, participantRoles);
     const totalRendimentos = new Decimal(totals.totalInterest);
 
-    const allParticipants = await db.select().from(participants).where(eq(participants.caixinhaId, caixinha.id));
-    let contasAReceber = new Decimal(0);
-    for (const p of allParticipants) contasAReceber = contasAReceber.add(new Decimal(p.currentDebt));
+    const [{ contasAReceberSQL }] = await db
+      .select({ contasAReceberSQL: sql<number>`COALESCE(SUM(${participants.currentDebt}), 0)` })
+      .from(participants)
+      .where(eq(participants.caixinhaId, caixinha.id));
+    const contasAReceber = new Decimal(contasAReceberSQL);
+
+    const allParticipants = await db.select().from(participants).where(and(eq(participants.caixinhaId, caixinha.id), eq(participants.isActive, true)));
 
     const now = new Date();
     const currentMonthFormatted = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -74,7 +82,7 @@ export const dashboardProcedures = {
       ));
 
     const paidIds = new Set(paidRows.map((row) => row.participantId));
-    const activeParticipants = allParticipants.filter((p) => p.isActive === true);
+    const activeParticipants = allParticipants;
     const activeMembers = activeParticipants.filter((p) => p.role !== 'external');
     const activeExternalWithDebt = activeParticipants.filter((p) => p.role === 'external' && new Decimal(p.currentDebt).gt(0));
 
@@ -381,13 +389,16 @@ export const dashboardProcedures = {
           inArray(transactions.participantId, participantIds)
         ));
 
-      const paidParticipants = allParticipants.filter(p =>
-        payments.some(pay => pay.participantId === p.id && (pay.paid === true || (pay.paid as any) === 1))
-      );
+      // Map para lookup O(1) ao invés de .some()/.find() O(n²)
+      const paidPaymentMap = new Map<number, typeof payments[0]>();
+      for (const pay of payments) {
+        if (pay.paid === true || (pay.paid as any) === 1) {
+          paidPaymentMap.set(pay.participantId, pay);
+        }
+      }
 
-      const unpaidParticipants = allParticipants.filter(p =>
-        !payments.some(pay => pay.participantId === p.id && (pay.paid === true || (pay.paid as any) === 1))
-      );
+      const paidParticipants = allParticipants.filter(p => paidPaymentMap.has(p.id));
+      const unpaidParticipants = allParticipants.filter(p => !paidPaymentMap.has(p.id));
 
       const totalCollected = monthTransactions
         .filter((t) => t.type === 'payment' || t.type === 'reversal')
@@ -407,12 +418,15 @@ export const dashboardProcedures = {
         unpaidCount: unpaidParticipants.length,
         lateCount: latePayments,
         totalCollected,
-        paidParticipants: paidParticipants.map(p => ({
-          id: p.id,
-          name: p.name,
-          paidLate: payments.find(pay => pay.participantId === p.id)?.paidLate ?? false,
-          paidAt: payments.find(pay => pay.participantId === p.id)?.paidAt ?? null,
-        })),
+        paidParticipants: paidParticipants.map(p => {
+          const pay = paidPaymentMap.get(p.id);
+          return {
+            id: p.id,
+            name: p.name,
+            paidLate: pay?.paidLate ?? false,
+            paidAt: pay?.paidAt ?? null,
+          };
+        }),
         unpaidParticipants: unpaidParticipants.map(p => ({
           id: p.id,
           name: p.name,

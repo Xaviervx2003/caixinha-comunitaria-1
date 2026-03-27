@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { trpc } from '@/lib/trpc';
 import { ParticipantCard } from '@/components/ParticipantCard';
@@ -85,16 +85,16 @@ export default function Home() {
 
   // ── Mutations ────────────────────────────────────────────────
   const addParticipantMutation = trpc.caixinha.addParticipant.useMutation({ onSuccess: invalidateAll });
-  const addLoanMutation = trpc.caixinha.addLoan.useMutation({ onSuccess: invalidateAll });
+  const addLoanMutation = trpc.caixinha.addLoan.useMutation({ onSuccess: () => { utils.caixinha.listParticipants.invalidate(); utils.caixinha.getAllTransactions.invalidate(); utils.caixinha.getBalancete.invalidate(); utils.caixinha.getAuditLog.invalidate(); } });
   const paymentMutation = trpc.caixinha.registerPayment.useMutation({ onSuccess: invalidateAll, onError: (e) => showErrorToast(e.message) });
-  const amortizeMutation = trpc.caixinha.registerAmortization.useMutation({ onSuccess: invalidateAll });
+  const amortizeMutation = trpc.caixinha.registerAmortization.useMutation({ onSuccess: () => { utils.caixinha.listParticipants.invalidate(); utils.caixinha.getAllTransactions.invalidate(); utils.caixinha.getBalancete.invalidate(); utils.caixinha.getAuditLog.invalidate(); } });
   const resetMonthMutation = trpc.caixinha.resetMonth.useMutation({ onSuccess: invalidateAll });
-  const updateLoanMutation = trpc.caixinha.updateParticipantLoan.useMutation({ onSuccess: invalidateAll });
-  const updateDebtMutation = trpc.caixinha.updateParticipantDebt.useMutation({ onSuccess: invalidateAll });
+  const updateLoanMutation = trpc.caixinha.updateParticipantLoan.useMutation({ onSuccess: () => utils.caixinha.listParticipants.invalidate() });
+  const updateDebtMutation = trpc.caixinha.updateParticipantDebt.useMutation({ onSuccess: () => { utils.caixinha.listParticipants.invalidate(); utils.caixinha.getBalancete.invalidate(); utils.caixinha.getAuditLog.invalidate(); } });
   const updateNameMutation = trpc.caixinha.updateParticipantName.useMutation({ onSuccess: () => utils.caixinha.listParticipants.invalidate() });
   const updateEmailMutation = trpc.caixinha.updateParticipantEmail.useMutation({ onSuccess: () => utils.caixinha.listParticipants.invalidate() });
   const deleteParticipantMutation = trpc.caixinha.deleteParticipant.useMutation({ onSuccess: invalidateAll });
-  const updateSettingsMutation = trpc.caixinha.updateCaixinhaSettings.useMutation({ onSuccess: () => showSuccessToast('Configurações salvas!') });
+  const updateSettingsMutation = trpc.caixinha.updateCaixinhaSettings.useMutation({ onSuccess: () => { utils.caixinha.getNextMonthEstimate.invalidate(); showSuccessToast('Configurações salvas!'); } });
   const closeCycleMutation = trpc.caixinha.closeCycleSnapshot.useMutation({ onSuccess: invalidateAll });
 
   // 🟢 NOVA MUTATION: Apagar Vários
@@ -183,6 +183,15 @@ export default function Home() {
   );
   const totalFees = collectionTotals.totalFees;
   const totalInterest = collectionTotals.totalInterest;
+
+  const transactionsByParticipant = useMemo(() => {
+    const map = new Map<number, Transaction[]>();
+    for (const t of allTransactions) {
+      if (!map.has(t.participantId)) map.set(t.participantId, []);
+      map.get(t.participantId)!.push(t);
+    }
+    return map;
+  }, [allTransactions]);
 
   // ── Handlers ────────────────────────────────────────────────
   const handleAddParticipant = async () => {
@@ -454,7 +463,7 @@ export default function Home() {
                         <ParticipantCard 
                           key={participant.id} 
                           participant={participant as any}
-                          allTransactions={allTransactions}
+                          participantTransactions={transactionsByParticipant.get(participant.id) || []}
                           
                           // 🟢 INJEÇÃO DAS PROPRIEDADES DE SELEÇÃO
                           selectionMode={isSelectionMode}

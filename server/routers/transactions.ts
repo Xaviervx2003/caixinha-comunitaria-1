@@ -1,6 +1,6 @@
 // server/routers/transactions.ts
 import { protectedProcedure } from "../_core/trpc";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { getDb } from "../db";
 import { transactions, participants, monthlyPayments, auditLog } from "../../drizzle/schema";
 import { calcMonthlyPayment, calcLateMonthlyPayment, isLatePayment } from "../businessLogic";
@@ -289,15 +289,23 @@ export const transactionsProcedures = {
         .where(and(eq(participants.caixinhaId, caixinha.id), eq(monthlyPayments.month, month), eq(monthlyPayments.year, year), eq(monthlyPayments.paid, true)));
       if (payments.length === 0) return { success: true, reset: 0 };
 
+      const paymentIds = payments.map(p => p.mp.id);
+      await tx.update(monthlyPayments).set({ paid: false, paidLate: false, paidAt: null }).where(inArray(monthlyPayments.id, paymentIds));
+
+      const participantIds = payments.map(p => p.mp.participantId);
+      const originalTxs = await tx.select().from(transactions).where(and(
+        inArray(transactions.participantId, participantIds),
+        eq(transactions.type, "payment"),
+        eq(transactions.month, month),
+        eq(transactions.year, year)
+      ));
+      const originalTxMap = new Map(originalTxs.map(t => [t.participantId, t]));
+
+      const newTransactions = [];
+      const newAuditLogs = [];
+
       for (const { mp, participant } of payments) {
-        await tx.update(monthlyPayments).set({ paid: false, paidLate: false, paidAt: null }).where(eq(monthlyPayments.id, mp.id));
-        const [originalTx] = await tx.select().from(transactions).where(and(
-          eq(transactions.participantId, mp.participantId),
-          eq(transactions.type, "payment"),
-          eq(transactions.month, month),
-          eq(transactions.year, year),
-        )).limit(1);
-        
+        const originalTx = originalTxMap.get(mp.participantId);
         const currentDebt = new Decimal(participant.currentDebt);
         const role = (participant.role || 'member') as 'member' | 'external'; 
         
@@ -305,9 +313,13 @@ export const transactionsProcedures = {
           ? new Decimal(originalTx.amount).abs().toFixed(2)
           : calcMonthlyPayment(currentDebt, role).total.toFixed(2);
           
-        await tx.insert(transactions).values({ participantId: mp.participantId, type: "reversal", amount: reversalAmountStr, balanceBefore: currentDebt.toFixed(2), balanceAfter: currentDebt.toFixed(2), month, year, description: `Estorno de pagamento: ${month}/${year}` });
-        await tx.insert(auditLog).values({ participantId: mp.participantId, participantName: participant.name, action: "payment_unmarked", month, year, description: `Pagamento de ${month}/${year} desmarcado (reset)` });
+        newTransactions.push({ participantId: mp.participantId, type: "reversal" as const, amount: reversalAmountStr, balanceBefore: currentDebt.toFixed(2), balanceAfter: currentDebt.toFixed(2), month, year, description: `Estorno de pagamento: ${month}/${year}` });
+        newAuditLogs.push({ participantId: mp.participantId, participantName: participant.name, action: "payment_unmarked" as const, month, year, description: `Pagamento de ${month}/${year} desmarcado (reset)` });
       }
+
+      if (newTransactions.length > 0) await tx.insert(transactions).values(newTransactions);
+      if (newAuditLogs.length > 0) await tx.insert(auditLog).values(newAuditLogs);
+
       return { success: true, reset: payments.length };
     });
   }),

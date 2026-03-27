@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { CheckCircle2, AlertCircle, XCircle, TrendingDown, Wallet, History, Check, ChevronLeft, ChevronRight, Edit2, AtSign, DollarSign, User, Trash2, CalendarDays } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { formatCurrency } from '@/lib/format-currency';
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { ConfirmationModal } from '@/components/ConfirmationModal';
 import { showSuccessToast, showErrorToast } from '@/lib/toast-utils';
 
@@ -38,7 +38,7 @@ export interface AppParticipant {
 
 interface ParticipantCardProps {
   participant: AppParticipant;
-  allTransactions?: any[]; 
+  participantTransactions?: any[]; 
   selectionMode?: boolean; 
   isSelected?: boolean;    
   onToggleSelection?: () => void; 
@@ -64,8 +64,8 @@ const MONTHS = [
   { value: '11', label: 'NOV', full: 'Novembro' }, { value: '12', label: 'DEZ', full: 'Dezembro' },
 ];
 
-export function ParticipantCard({
-  participant, allTransactions, selectionMode, isSelected, onToggleSelection,
+export const ParticipantCard = memo(function ParticipantCard({
+  participant, participantTransactions, selectionMode, isSelected, onToggleSelection,
   onPayment, onAmortize, onAddLoan, onViewHistory,
   onRegisterPayment, onEditLoan, onEditDebt, onEditName, onEditEmail,
   onDelete, onViewChart
@@ -161,7 +161,7 @@ export function ParticipantCard({
   const userRole = participant.role || 'member';
   const baseMonthlyTotal = calculateMonthlyTotal(participant.currentDebt, userRole);
   
-  const pTx = allTransactions?.filter((t: any) => t.participantId === participant.id) || [];
+  const pTx = participantTransactions || [];
   const totalCotasPagas = pTx.reduce((acc, t) => {
     if (t.type === 'payment' && t.description) {
       const match = t.description.match(/Cota.*?R\$ (\d+\.\d{2})/);
@@ -454,7 +454,7 @@ export function ParticipantCard({
       </Dialog>
     </div>
   );
-}
+});
 
 function getParticipantStatus(participant: AppParticipant): 'green' | 'yellow' | 'red' {
   const debt = parseFloat(participant.currentDebt as string);
