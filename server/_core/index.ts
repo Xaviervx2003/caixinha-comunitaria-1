@@ -28,22 +28,23 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
-async function startServer() {
-  const app = express();
-  const server = createServer(app);
-  
-  // Body parser com limite razoável para API tRPC
-  app.use(express.json({ limit: "1mb" }));
-  app.use(express.urlencoded({ limit: "1mb", extended: true }));
+const app = express();
 
-  // tRPC API - A Nossa Única Porta de Entrada (Protegida pela Senha Mestra!)
-  app.use(
-    "/api/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-    })
-  );
+// Body parser com limite razoável para API tRPC
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ limit: "1mb", extended: true }));
+
+// tRPC API - A Nossa Única Porta de Entrada
+app.use(
+  "/api/trpc",
+  createExpressMiddleware({
+    router: appRouter,
+    createContext,
+  })
+);
+
+async function startServer() {
+  const server = createServer(app);
 
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
@@ -64,4 +65,10 @@ async function startServer() {
   });
 }
 
-startServer().catch(console.error);
+// Se NÃO estivermos na Vercel, iniciamos o servidor localmente
+if (!process.env.VERCEL) {
+  startServer().catch(console.error);
+}
+
+// Exporta o app para o Serverless Function da Vercel
+export default app;
